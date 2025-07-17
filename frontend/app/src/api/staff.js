@@ -25,3 +25,11 @@ export const updateStaff = (id, data) => {
     data,
   });
 };
+
+// 新增
+export const deleteStaff = (id) => {
+  return request({
+    url: `/staff/${id}`,
+    method: 'delete',
+  });
+};

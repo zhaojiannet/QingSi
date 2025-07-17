@@ -8,7 +8,6 @@
       <!-- 核心营业报表 -->
       <el-tab-pane label="核心营业报表" name="business">
         <div class="filter-container">
-          <!-- 核心改动1：在 el-form-item 上直接应用 flex 布局 -->
           <el-form :inline="true" :model="filters" class="date-filter-form">
             <el-form-item label="选择日期">
               <el-date-picker
@@ -18,7 +17,7 @@
                 start-placeholder="开始日期"
                 end-placeholder="结束日期"
                 value-format="YYYY-MM-DD"
-                @change="fetchBusinessReport"
+                @change="fetchBusinessData"
               />
             </el-form-item>
             <el-form-item>
@@ -44,10 +43,26 @@
             <el-statistic title="客单价 (元)" :value="businessReport.data.averageOrderValue" />
           </el-col>
         </el-row>
+        
+        <div class="transaction-list-container">
+          <h3 class="section-title">流水记录</h3>
+          <el-table :data="transactionList.data" v-loading="transactionList.loading" stripe max-height="500">
+            <el-table-column prop="transactionTime" label="时间" width="180">
+              <template #default="{ row }">{{ formatInAppTimeZone(row.transactionTime) }}</template>
+            </el-table-column>
+            <el-table-column label="顾客">
+              <template #default="{ row }">{{ row.member?.name || '非会员' }}</template>
+            </el-table-column>
+            <el-table-column label="服务项目">
+              <template #default="{ row }">{{ row.summary || row.items.map(item => item.service.name).join(', ') }}</template>
+            </el-table-column>
+            <el-table-column prop="staff.name" label="服务员工" />
+            <el-table-column prop="actualPaidAmount" label="实付金额(元)" align="right" />
+          </el-table>
+        </div>
       </el-tab-pane>
-
-
-      <!-- 项目销售排行 -->
+      
+      <!-- 其他报表Tab... -->
       <el-tab-pane label="项目销售排行" name="serviceRanking">
          <el-table :data="serviceRanking.data" v-loading="serviceRanking.loading" stripe>
            <el-table-column type="index" label="排名" width="80" />
@@ -56,24 +71,23 @@
            <el-table-column prop="totalCount" label="销售数量" align="center" sortable />
          </el-table>
       </el-tab-pane>
-
+        
       <el-tab-pane label="沉睡会员" name="sleepingMembers">
         <div class="tip">超过90天未产生任何消费的活跃会员</div>
         <el-table :data="sleepingMembers.data" v-loading="sleepingMembers.loading" stripe max-height="600">
            <el-table-column prop="name" label="姓名" />
            <el-table-column prop="phone" label="手机号" />
            <el-table-column prop="registrationDate" label="注册日期">
-              <template #default="{ row }">{{ new Date(row.registrationDate).toLocaleDateString() }}</template>
+              <template #default="{ row }">{{ formatDateInAppTimeZone(row.registrationDate) }}</template>
            </el-table-column>
            <el-table-column prop="lastVisitDate" label="最后消费日期">
              <template #default="{ row }">
-                <span v-if="row.lastVisitDate">{{ new Date(row.lastVisitDate).toLocaleDateString() }}</span>
+                <span v-if="row.lastVisitDate">{{ formatDateInAppTimeZone(row.lastVisitDate) }}</span>
                 <span v-else>无消费记录</span>
              </template>
            </el-table-column>
         </el-table>
       </el-tab-pane>
-
     </el-tabs>
   </div>
 </template>
@@ -81,39 +95,49 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue';
 import { getBusinessReport, getServiceRanking, getSleepingMembers } from '@/api/report.js';
+import { getTransactionsByDateRange } from '@/api/transaction.js';
+import { formatInAppTimeZone, formatDateInAppTimeZone } from '@/utils/date.js';
 
 const activeTab = ref('business');
 
 // --- 营业报表 ---
 const dateRange = ref([]);
-const quickDate = ref('this_month'); // 核心改动2：新增状态，用于高亮快捷按钮
+// --- 核心修改：默认选中“今日” ---
+const quickDate = ref('today');
 const businessReport = reactive({
   loading: false,
-  data: {
-    totalRevenue: 0,
-    cardConsumption: 0,
-    totalCustomers: 0,
-    averageOrderValue: 0,
-  },
+  data: { totalRevenue: 0, cardConsumption: 0, totalCustomers: 0, averageOrderValue: 0 },
+});
+const transactionList = reactive({
+  loading: false,
+  data: [],
 });
 
-const fetchBusinessReport = async () => {
+const fetchBusinessData = async () => {
   if (!dateRange.value || dateRange.value.length !== 2) {
-      // 当手动清除日期时，quickDate也应清空
-      quickDate.value = ''; 
-      return;
+    quickDate.value = '';
+    businessReport.data = { totalRevenue: 0, cardConsumption: 0, totalCustomers: 0, averageOrderValue: 0 };
+    transactionList.data = [];
+    return;
   };
+  
+  const params = { startDate: dateRange.value[0], endDate: dateRange.value[1] };
+  
   businessReport.loading = true;
+  transactionList.loading = true;
   try {
-    const params = { startDate: dateRange.value[0], endDate: dateRange.value[1] };
-    const res = await getBusinessReport(params);
-    businessReport.data = res;
+    const [reportData, transactionsData] = await Promise.all([
+      getBusinessReport(params),
+      getTransactionsByDateRange(params)
+    ]);
+    businessReport.data = reportData;
+    transactionList.data = transactionsData;
   } finally {
     businessReport.loading = false;
+    transactionList.loading = false;
   }
 };
 
-// 核心改动3：新增快捷日期切换函数
 const handleQuickDateChange = (value) => {
   const today = new Date();
   let start, end;
@@ -124,7 +148,6 @@ const handleQuickDateChange = (value) => {
       end = today;
       break;
     case 'this_week': {
-      // 周一为一周的开始
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); 
       start = new Date(today.setDate(diff));
@@ -141,16 +164,11 @@ const handleQuickDateChange = (value) => {
   const formatDate = (d) => d.toISOString().split('T')[0];
   dateRange.value = [formatDate(start), formatDate(end)];
   
-  // 主动调用 fetchBusinessReport
-  fetchBusinessReport();
+  fetchBusinessData();
 };
 
-
 // --- 项目排行 ---
-const serviceRanking = reactive({
-  loading: false,
-  data: [],
-});
+const serviceRanking = reactive({ loading: false, data: [] });
 const fetchServiceRanking = async () => {
   serviceRanking.loading = true;
   try {
@@ -161,10 +179,7 @@ const fetchServiceRanking = async () => {
 };
 
 // --- 沉睡会员 ---
-const sleepingMembers = reactive({
-  loading: false,
-  data: [],
-});
+const sleepingMembers = reactive({ loading: false, data: [] });
 const fetchSleepingMembers = async () => {
   sleepingMembers.loading = true;
   try {
@@ -176,17 +191,10 @@ const fetchSleepingMembers = async () => {
 
 // --- 初始化和Tab切换 ---
 onMounted(() => {
-  // 初始化日期范围为本月
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const formatDate = (d) => d.toISOString().split('T')[0];
-  dateRange.value = [formatDate(startOfMonth), formatDate(endOfMonth)];
-  
-  fetchBusinessReport(); // 默认加载第一个报表
+  // --- 核心修改：页面加载时，主动触发“今日”的日期切换逻辑 ---
+  handleQuickDateChange('today');
 });
 
-// 监听Tab切换，按需加载数据
 watch(activeTab, (newTab) => {
   if (newTab === 'serviceRanking' && serviceRanking.data.length === 0) {
     fetchServiceRanking();
@@ -206,21 +214,24 @@ watch(activeTab, (newTab) => {
 .stats-cards { padding: 20px; background-color: #fafafa; border-radius: 6px; }
 .el-statistic { text-align: center; }
 .tip { color: #909399; font-size: 14px; margin-bottom: 15px; }
-/* --- 核心改动2：全新的样式方案 --- */
 .date-filter-form {
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
 }
-
-/* 
-  让 el-form-item 自身也成为一个 flex 容器，
-  并让其内部的 label 和内容（日期选择框）垂直居中对齐。
-  这是解决对齐问题的关键。
-*/
 .date-filter-form .el-form-item {
   display: flex;
   align-items: center;
-  margin-bottom: 0; /* 移除 inline 表单的默认下边距 */
+  margin-bottom: 0;
+}
+.transaction-list-container {
+    margin-top: 30px;
+}
+.section-title {
+    font-size: 18px;
+    color: #303133;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e4e7ed;
 }
 </style>

@@ -6,7 +6,7 @@
     <el-table :data="services" stripe v-loading="loading">
       <el-table-column prop="name" label="服务名称" />
       <el-table-column prop="standardPrice" label="标准价格" width="120" align="right">
-        <template #default="{ row }">¥{{ row.standardPrice.toFixed(2) }}</template>
+        <template #default="{ row }">¥{{ new Decimal(row.standardPrice).toFixed(2) }}</template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
@@ -39,8 +39,24 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <div class="dialog-footer">
+          <div>
+            <!-- 核心修改：v-if 判断的是 initialStatus -->
+            <el-popconfirm
+              v-if="form.id && initialStatus === 'UNAVAILABLE'"
+              title="确定要删除该服务吗？此操作不可恢复。"
+              @confirm="handleDelete(form.id)"
+            >
+              <template #reference>
+                <el-button type="danger" link>删除服务</el-button>
+              </template>
+            </el-popconfirm>
+          </div>
+          <div>
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="handleSubmit">确定</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -48,14 +64,17 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { getServiceList, createService, updateService } from '@/api/service.js'; // 假设API已创建
+import { getServiceList, createService, updateService, deleteService } from '@/api/service.js';
 import { ElMessage } from 'element-plus';
 import { Plus } from '@element-plus/icons-vue';
+import Decimal from 'decimal.js';
 
 const services = ref([]);
 const loading = ref(false);
 const dialogVisible = ref(false);
 const formRef = ref(null);
+// 核心修改：新增 ref 记录初始状态
+const initialStatus = ref('');
 
 const getInitialForm = () => ({
   id: null,
@@ -83,36 +102,58 @@ onMounted(fetchServices);
 
 const handleAdd = () => {
   Object.assign(form, getInitialForm());
+  initialStatus.value = ''; // 新增模式下没有初始状态，删除按钮不会显示
   dialogVisible.value = true;
 };
 
 const handleEdit = (row) => {
-  Object.assign(form, row);
+  const editData = { ...row, standardPrice: Number(row.standardPrice) };
+  Object.assign(form, editData);
+  // 核心修改：记录打开弹窗时的状态
+  initialStatus.value = row.status;
   dialogVisible.value = true;
 };
 
 const handleSubmit = async () => {
+  if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
     try {
       if (form.id) {
-        await updateService(form.id, form); // 假设API已创建
+        await updateService(form.id, form);
         ElMessage.success('更新成功');
       } else {
-        await createService(form); // 假设API已创建
+        await createService(form);
         ElMessage.success('新增成功');
       }
       dialogVisible.value = false;
-      fetchServices();
+      await fetchServices();
     } catch {
       // API层已处理
     }
   });
+};
+
+const handleDelete = async (id) => {
+  try {
+    await deleteService(id);
+    ElMessage.success('删除成功');
+    dialogVisible.value = false;
+    await fetchServices();
+  } catch {
+    // API层已处理
+  }
 };
 </script>
 
 <style scoped>
 .action-bar {
   margin-bottom: 20px;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 </style>

@@ -1,4 +1,4 @@
-// backend/app/prisma/schema.prisma (已修正 Enum 格式)
+// backend/app/prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -30,10 +30,9 @@ model Member {
 }
 
 enum MemberStatus {
-  ACTIVE
-  INACTIVE
-  FROZEN
-  DELETED
+  ACTIVE    // 对应业务术语: 正常
+  INACTIVE  // 对应业务术语: 冻结
+  DELETED   // 对应业务术语: 注销账户
 }
 
 enum Gender {
@@ -47,7 +46,6 @@ model Card {
   id            String     @id
   memberId      String
   cardTypeId    String
-  // --- 优化：Float -> Decimal ---
   balance       Decimal    @default(0.0) @db.Decimal(10, 2)
   issueDate     DateTime   @default(now())
   expiryDate    DateTime?
@@ -72,9 +70,8 @@ enum CardStatus {
 model CardType {
   id            String   @id
   name          String   @unique
-  // --- 优化：Float -> Decimal ---
   initialPrice  Decimal  @db.Decimal(10, 2)
-  discountRate  Decimal  @db.Decimal(4, 3) // 例如 0.850，精度更高
+  discountRate  Decimal  @db.Decimal(4, 3) 
   status        ServiceStatus @default(AVAILABLE)
   
   cards         Card[]
@@ -86,12 +83,12 @@ model CardType {
 model Service {
   id              String         @id
   name            String         @unique
-  // --- 优化：Float -> Decimal ---
   standardPrice   Decimal        @db.Decimal(10, 2)
   status          ServiceStatus  @default(AVAILABLE)
 
   TransactionItem TransactionItem[]
-  Appointment     Appointment[]
+  // --- 核心修复点: 为关联字段添加名称 'appointments' ---
+  appointments    Appointment[]
 
   @@index([status])
 }
@@ -106,7 +103,8 @@ model Transaction {
   id                String          @id
   memberId          String?
   staffId           String?
-  // --- 优化：Float -> Decimal ---
+  // --- 核心修改：新增 summary 字段 ---
+  summary           String?         // 用于记录交易摘要，如“办理【xxx卡】”或“项目消费”
   totalAmount       Decimal         @db.Decimal(10, 2)
   actualPaidAmount  Decimal         @db.Decimal(10, 2)
   discountAmount    Decimal         @db.Decimal(10, 2)
@@ -126,6 +124,7 @@ model Transaction {
   @@index([staffId])
 }
 
+
 enum PaymentMethod {
   CASH
   WECHAT_PAY
@@ -139,7 +138,6 @@ model TransactionItem {
   id            String      @id
   transactionId String
   serviceId     String
-  // --- 优化：Float -> Decimal ---
   price         Decimal     @db.Decimal(10, 2)
   quantity      Int         @default(1)
 
@@ -161,6 +159,7 @@ model Staff {
   status           StaffStatus   @default(ACTIVE)
   countsCommission Boolean       @default(true)
   
+  user             User?
   transactions     Transaction[]
   appointments     Appointment[]
 
@@ -203,17 +202,37 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
-// --- 用户模型 ---
 model User {
   id        String   @id @default(cuid())
   username  String   @unique
   password  String
-  role      String   @default("staff")
+  role      Role     @default(STYLIST)
   createdAt DateTime @default(now())
+  
+  staffId   String?  @unique
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  refreshTokens RefreshToken[]
 }
 
+enum Role {
+  ADMIN
+  MANAGER
+  STYLIST
+  ASSISTANT
+}
 
-// --- 系统配置模型 ---
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  userId    String
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
 model SystemConfig {
   id                  Int     @id @default(1)
   enableLoginCaptcha  Boolean @default(true)

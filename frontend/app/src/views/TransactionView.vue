@@ -29,9 +29,8 @@
               {{ item.name }} ({{ item.phone }})
             </span>
             <div class="suggestion-tags">
-              <el-tag :type="statusTagType(item.status)" size="small" effect="plain">{{ statusText(item.status) }}</el-tag>
+              <el-tag :type="memberStatusTagType(item.status)" size="small" effect="plain">{{ memberStatusText(item.status) }}</el-tag>
               
-              <!-- 核心修改：根据 totalBalance 显示标签 -->
               <el-tag v-if="item.totalBalance > 0" type="warning" size="small" effect="plain">
                 有卡 (余额: ¥{{ item.totalBalance.toFixed(2) }})
               </el-tag>
@@ -83,19 +82,19 @@
             </el-radio-group>
           </el-form-item>
 
-          <el-form-item v-if="form.paymentMethod === 'MEMBER_CARD'" label="会员卡支付模式">
+          <el-form-item v-show="form.paymentMethod === 'MEMBER_CARD'" label="会员卡支付模式">
             <el-radio-group v-model="cardPaymentMode" size="default">
               <el-radio-button value="auto">自动选择</el-radio-button>
               <el-radio-button value="manual">手动选择</el-radio-button>
             </el-radio-group>
           </el-form-item>
           
-          <el-form-item label="选择会员卡" v-if="form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode === 'manual'">
+          <el-form-item v-show="form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode === 'manual'" label="选择会员卡">
             <el-select v-model="form.cardId" placeholder="请选择会员卡" size="large" style="width: 100%">
               <el-option
                 v-for="card in availableCards"
                 :key="card.id"
-                :label="`${card.cardType.name} (余额: ¥${card.balance.toFixed(2)})`"
+                :label="`${card.cardType.name} (余额: ¥${new Decimal(card.balance).toFixed(2)})`"
                 :value="card.id"
               />
             </el-select>
@@ -120,7 +119,7 @@
           <el-table :data="cartItems" style="width: 100%">
             <el-table-column prop="name" label="项目名称" />
             <el-table-column prop="standardPrice" label="价格" width="80" align="right">
-               <template #default="{ row }">¥{{ row.standardPrice.toFixed(2) }}</template>
+               <template #default="{ row }">¥{{ new Decimal(row.standardPrice).toFixed(2) }}</template>
             </el-table-column>
           </el-table>
           <el-divider />
@@ -146,6 +145,18 @@
               <span class="total-price">¥{{ displayActualPaidAmount.toFixed(2) }}</span>
             </div>
           </div>
+
+          <div v-if="form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode === 'auto' && paymentPlan.paymentDetails.length > 0" class="payment-plan-preview">
+            <el-divider content-position="left">支付方案预览</el-divider>
+            <div v-for="(detail, index) in paymentPlan.paymentDetails" :key="index" class="plan-item">
+              <span>
+                <el-icon><CreditCard /></el-icon>
+                {{ detail.cardName }} ({{ (detail.discountRate * 10).toFixed(1) }}折)
+              </span>
+              <span class="plan-deduction">- ¥{{ displayDiscountAmount.minus(paymentPlan.paymentDetails.slice(0, index).reduce((sum, d) => sum.plus(d.discountAmount), new Decimal(0))).toFixed(2) }}</span>
+            </div>
+          </div>
+          
           <el-button 
             type="primary" 
             size="large" 
@@ -161,42 +172,47 @@
     </el-row>
     
     <!-- 今日结算记录 -->
-    <div class="today-records">
-        <div class="page-header">
-          <h2 class="page-title">今日结算记录</h2>
-        </div>
-        <div>
-          <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
-            <el-table-column prop="member.name" label="姓名">
-              <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
-            </el-table-column>
-            <el-table-column label="服务项目">
-              <template #default="{ row }">{{ row.items.map(item => item.service.name).join(', ') }}</template>
-            </el-table-column>
-             <el-table-column prop="actualPaidAmount" label="实付金额" align="right">
-              <template #default="{ row }">
-                <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="transactionTime" label="时间" width="120" align="center">
-              <template #default="{ row }">{{ formatCustomDateTime(row.transactionTime) }}</template>
-            </el-table-column>
-          </el-table>
-        </div>
+<div class="today-records">
+    <div class="page-header">
+      <h2 class="page-title">今日结算记录</h2>
     </div>
+    <div>
+      <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
+        <el-table-column prop="member.name" label="姓名">
+          <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
+        </el-table-column>
+        <el-table-column label="服务项目">
+          <!-- 核心修改：优先显示 summary -->
+          <template #default="{ row }">
+            {{ row.summary || row.items.map(item => item.service.name).join(', ') }}
+          </template>
+        </el-table-column>
+         <el-table-column prop="actualPaidAmount" label="实付金额" align="right">
+          <template #default="{ row }">
+            <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="transactionTime" label="时间" width="180" align="center">
+          <template #default="{ row }">{{ formatInAppTimeZone(row.transactionTime) }}</template>
+        </el-table-column>
+      </el-table>
+    </div>
+</div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue';
-import { useTransactionStore } from '@/stores/transaction'; // 引入 transaction store
+import { useTransactionStore } from '@/stores/transaction';
 import { getMembers } from '@/api/member.js';
 import { getServiceList } from '@/api/service.js';
 import { getStaffList } from '@/api/staff.js';
 import { createTransaction, getTodayTransactions, createComboCheckout } from '@/api/transaction.js';
-
+import { CreditCard } from '@element-plus/icons-vue';
 import Decimal from 'decimal.js';
 import { ElMessage } from 'element-plus';
+import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
+import { formatInAppTimeZone } from '@/utils/date.js';
 
 // --- 状态定义 ---
 const formRef = ref(null);
@@ -207,32 +223,25 @@ const selectedMember = ref(null);
 const isSubmitting = ref(false);
 const todayTransactions = ref([]);
 const cardPaymentMode = ref('auto');
-const transactionStore = useTransactionStore(); // 实例化 store
+const transactionStore = useTransactionStore();
 
 // --- 表单数据 ---
 const getInitialForm = () => ({
-    appointmentId: null, // 新增：存储关联的预约ID
-
-  memberId: null,
-  serviceIds: [],
-  staffId: null,
-  paymentMethod: 'CASH',
-  cardId: null,
-  notes: '',
+    appointmentId: null,
+    memberId: null,
+    serviceIds: [],
+    staffId: null,
+    paymentMethod: 'CASH',
+    cardId: null,
+    notes: '',
 });
 const form = reactive(getInitialForm());
 
-// --- 核心修改：在 onMounted 中检查并消费数据 ---
 onMounted(() => {
-  // 检查是否存在从预约页传来的数据
   const appointmentData = transactionStore.consumeAppointmentToCheckout();
-  
   if (appointmentData) {
-    // 如果有数据，用它来填充表单
-form.appointmentId = appointmentData.appointmentId;
-form.serviceIds = appointmentData.serviceIds;
-    
-    // 触发会员选择逻辑，以自动加载会员信息和卡片
+    form.appointmentId = appointmentData.appointmentId;
+    form.serviceIds = appointmentData.serviceIds;
     if(appointmentData.memberId) {
       handleMemberSelect({
           id: appointmentData.memberId,
@@ -243,32 +252,33 @@ form.serviceIds = appointmentData.serviceIds;
     }
   }
 
-  // 继续执行原有的加载逻辑
   fetchServices();
   fetchStaff();
   fetchTodayTransactions();
 });
+
 // --- API 调用 ---
 const fetchServices = async () => {
-  // --- 核心修改：只获取上架的服务 ---
   serviceList.value = await getServiceList({ status: 'AVAILABLE' });
 };
 const fetchStaff = async () => {
-  // --- 核心修改：只获取在职的员工 ---
   allStaff.value = await getStaffList({ status: 'ACTIVE' });
 };
-
 const fetchTodayTransactions = async () => { 
-  const data = await getTodayTransactions();
-  todayTransactions.value = data.map(tx => ({
-    ...tx,
-    items: tx.items.map(item => ({
-      ...item,
-      price: item.price !== null ? item.price : (item.service?.standardPrice || 0)
-    }))
-  }));
+  try {
+    const data = await getTodayTransactions();
+    todayTransactions.value = data.map(tx => ({
+      ...tx,
+      items: tx.items.map(item => ({
+        ...item,
+        price: item.price !== null ? item.price : (item.service?.standardPrice || 0)
+      }))
+    }));
+  } catch(error) {
+    console.error("获取今日流水失败:", error);
+    todayTransactions.value = [];
+  }
 };
-
 const queryMembersAsync = async (queryString, cb) => {
   if (!queryString) return cb([]);
   const { data } = await getMembers({ search: queryString, limit: 20, includeCards: true });
@@ -278,21 +288,33 @@ const queryMembersAsync = async (queryString, cb) => {
 // --- 计算属性 ---
 const commissionableStaff = computed(() => allStaff.value.filter(staff => staff.countsCommission));
 const cartItems = computed(() => serviceList.value.filter(s => form.serviceIds.includes(s.id)));
-const totalAmount = computed(() => new Decimal(cartItems.value.reduce((sum, item) => sum + item.standardPrice, 0)));
 
+const totalAmount = computed(() => {
+  return cartItems.value.reduce(
+    (sum, item) => sum.plus(new Decimal(item.standardPrice)), 
+    new Decimal(0)
+  );
+});
+
+// --- 核心修复点: 加固 availableCards 计算属性 ---
 const availableCards = computed(() => {
-  if (!selectedMember.value?.cards) return [];
+  // 如果没有选择会员，或者会员对象上没有 cards 数组，直接返回空数组
+  if (!selectedMember.value || !Array.isArray(selectedMember.value.cards)) {
+    return [];
+  }
+  // 确保过滤和排序逻辑在有 cards 数组的情况下执行
   return selectedMember.value.cards
-    .filter(card => card.status === 'ACTIVE' && card.balance > 0)
+    .filter(card => card.status === 'ACTIVE' && new Decimal(card.balance).gt(0))
     .sort((a, b) => {
-      if (a.cardType.discountRate !== b.cardType.discountRate) {
-        return a.cardType.discountRate - b.cardType.discountRate;
+      const discountRateA = new Decimal(a.cardType.discountRate);
+      const discountRateB = new Decimal(b.cardType.discountRate);
+      if (!discountRateA.equals(discountRateB)) {
+        return discountRateA.minus(discountRateB).toNumber();
       }
-      return a.balance - b.balance;
+      return new Decimal(a.balance).minus(new Decimal(b.balance)).toNumber();
     });
 });
 
-// 核心改动1：创建一个统一的、纯前端的支付计划计算属性
 const paymentPlan = computed(() => {
   if (form.paymentMethod !== 'MEMBER_CARD' || cartItems.value.length === 0 || !selectedMember.value) {
     return {
@@ -303,7 +325,6 @@ const paymentPlan = computed(() => {
     };
   }
 
-  // 手动模式
   if (cardPaymentMode.value === 'manual') {
     if (!form.cardId) return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
     const card = availableCards.value.find(c => c.id === form.cardId);
@@ -327,7 +348,6 @@ const paymentPlan = computed(() => {
     };
   }
 
-  // 自动模式
   let remainingAmount = totalAmount.value;
   let totalPaid = new Decimal(0);
   const paymentDetails = [];
@@ -352,7 +372,7 @@ const paymentPlan = computed(() => {
   }
 
   if (!remainingAmount.isZero()) {
-    return { paymentDetails: [], actualPaidAmount: totalAmount.value, totalDiscount: 0, error: '余额不足' };
+    return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: `所有会员卡余额不足，仍有 ¥${remainingAmount.toFixed(2)} 未支付` };
   }
   
   return {
@@ -373,6 +393,10 @@ const averageDiscountRateText = computed(() => {
       return `${detail.cardName} - ${(detail.discountRate * 10).toFixed(1)}折`;
   }
   if (cardPaymentMode.value === 'auto' && totalAmount.value.gt(0)) {
+    if (paymentPlan.value.paymentDetails.length === 1) {
+      const detail = paymentPlan.value.paymentDetails[0];
+      return `${detail.cardName} - ${(detail.discountRate * 10).toFixed(1)}折`;
+    }
     const rate = displayActualPaidAmount.value.div(totalAmount.value);
     return `综合 ${(rate.times(10)).toFixed(1)}折`;
   }
@@ -381,7 +405,7 @@ const averageDiscountRateText = computed(() => {
 
 const isCheckoutReady = computed(() => {
   if (cartItems.value.length === 0) return false;
-  if (commissionableStaff.value.length > 0 && !form.staffId) return false;
+  if (commissionableStaff.value.length > 0 && !form.staffId) return false; 
   if (form.paymentMethod === 'MEMBER_CARD' && paymentPlan.value.error) return false;
   return true;
 });
@@ -390,15 +414,12 @@ const isCheckoutReady = computed(() => {
 const handleMemberSelect = (item) => {
   form.memberId = item.id;
   selectedMember.value = item;
-  cardPaymentMode.value = 'auto'; 
   
-  const hasActiveCard = availableCards.value.length > 0;
-  if (hasActiveCard) {
+  if (availableCards.value.length > 0) {
     form.paymentMethod = 'MEMBER_CARD';
   } else {
     form.paymentMethod = 'CASH';
   }
-  form.cardId = null; 
 };
 
 const clearMember = () => {
@@ -408,13 +429,12 @@ const clearMember = () => {
   cardPaymentMode.value = 'auto';
 };
 
-const resetForm = () => {
+const resetForm = async () => {
   clearMember();
   form.serviceIds = [];
   form.notes = '';
-  fetchTodayTransactions();
   form.appointmentId = null;
-
+  await fetchTodayTransactions();
 };
 
 const handleCheckout = async () => {
@@ -431,29 +451,12 @@ const handleCheckout = async () => {
       
     await apiCall;
     ElMessage.success('结算成功！');
-    resetForm();
+    await resetForm();
+  } catch (error) {
+    console.error("结算失败:", error);
   } finally {
     isSubmitting.value = false;
   }
-};
-
-// --- 辅助函数 ---
-const statusText = (status) => {
-  const map = { ACTIVE: '正常', INACTIVE: '停用', FROZEN: '冻结', DELETED: '已注销' };
-  return map[status] || '未知';
-};
-const statusTagType = (status) => {
-  const map = { ACTIVE: 'success', INACTIVE: 'info', FROZEN: 'warning', DELETED: 'danger' };
-  return map[status] || 'info';
-};
-const formatCustomDateTime = (isoString) => {
-  if (!isoString) return '';
-  const date = new Date(isoString);
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const day = date.getDate().toString().padStart(2, '0');
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${month}-${day} ${hours}:${minutes}`;
 };
 </script>
 
@@ -484,25 +487,37 @@ const formatCustomDateTime = (isoString) => {
 .suggestion-item { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 .suggestion-info { flex-grow: 1; }
 .suggestion-tags { display: flex; gap: 5px; flex-shrink: 0; margin-left: 15px; }
-.combo-preview {
-  margin-bottom: 15px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e4e7ed;
+.discount-label {
+  color: #303133;
 }
-.combo-preview-title {
-  font-size: 14px;
-  color: #606266;
-  margin-bottom: 10px;
-  font-weight: 500;
+.discount-detail {
+  color: #f56c6c;
+  margin-left: 5px;
 }
 @media (max-width: 992px) {
   .right-panel { margin-top: 20px; }
 }
-.discount-label {
-  color: #303133; /* 标签文字改为黑色 */
+.payment-plan-preview {
+  margin-top: 20px;
+  font-size: 14px;
 }
-.discount-detail {
-  color: #f56c6c; /* 折扣详情文字改为与金额一样的颜色 */
-  margin-left: 5px;
+.plan-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 5px;
+  color: #606266;
+  border-bottom: 1px dashed #e4e7ed;
+}
+.plan-item:last-child {
+  border-bottom: none;
+}
+.plan-item .el-icon {
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.plan-deduction {
+  font-weight: 500;
+  color: #f56c6c;
 }
 </style>

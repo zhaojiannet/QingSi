@@ -28,3 +28,11 @@ export const updateCardType = (id, data) => {
     data,
   });
 };
+
+// 新增
+export const deleteCardType = (id) => {
+  return request({
+    url: `/card-types/${id}`,
+    method: 'delete',
+  });
+};

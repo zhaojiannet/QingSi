@@ -2,6 +2,14 @@
 
 import request from './index.js';
 
+// --- 新增：获取今日预约数量的API函数 ---
+export const getTodayAppointmentCount = () => {
+  return request({
+    url: '/appointments/count/today',
+    method: 'get',
+  });
+};
+
 export const getAppointments = (params) => {
   return request({
     url: '/appointments',

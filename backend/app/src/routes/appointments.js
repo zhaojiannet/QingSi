@@ -1,10 +1,31 @@
-//backend/app/src/routes/appointments.js
-
+// backend/app/src/routes/appointments.js
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 
 export default async function (fastify, opts) {
+  
+  fastify.get('/count/today', async (request, reply) => {
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+    const count = await prisma.appointment.count({
+      where: {
+        appointmentTime: {
+          gte: startOfToday,
+          lt: endOfToday,
+        },
+        // --- 核心修改：只统计“待确认”和“已确认”的预约 ---
+        status: {
+          in: ['PENDING', 'CONFIRMED']
+        }
+      }
+    });
+
+    return { count };
+  });
+
   fastify.post('/', async (request, reply) => {
 
     const {
@@ -30,7 +51,6 @@ export default async function (fastify, opts) {
           notes,
           status: 'PENDING',
           services: { connect: serviceIds.map(id => ({ id })) },
-          // 只有当ID存在时，才进行connect操作
           ...(memberId && { member: { connect: { id: memberId } } }),
           ...(assignedStaffId && { staff: { connect: { id: assignedStaffId } } }),
         },
@@ -44,8 +64,6 @@ export default async function (fastify, opts) {
 
   });
 
-  // 获取预约列表（可按日期、员工、状态过滤）
-  // --- 核心修改：查询列表，支持按日期范围过滤 ---
   fastify.get('/', async (request, reply) => {
     const { startDate, endDate, staffId, status } = request.query;
     const where = {};
@@ -77,7 +95,6 @@ export default async function (fastify, opts) {
 
   });
 
-  // 更新预约状态 (保持不变)
   fastify.patch('/:id/status', async (request, reply) => {
       const { id } = request.params;
       const { status } = request.body;

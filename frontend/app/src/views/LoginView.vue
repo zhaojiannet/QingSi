@@ -23,19 +23,17 @@
               <el-input v-model="form.password" type="password" placeholder="请输入密码" size="large" show-password :prefix-icon="Lock" />
             </el-form-item>
             
-  <!-- 核心修改：用 v-if 控制验证码区域的显示 -->
-  <el-form-item v-if="loginConfig.showCaptcha" prop="captchaText" label="验证码">
-    <div class="captcha-wrapper">
-      <el-input v-model="form.captchaText" placeholder="请输入验证码" size="large" />
-      <img v-if="captchaImage" :src="captchaImage" @click="refreshCaptcha" class="captcha-image" alt="验证码" title="点击刷新" />
-    </div>
-  </el-form-item>
-
-            <el-form-item>
-              <div class="form-actions">
-                <el-checkbox v-model="rememberMe" label="记住密码" size="large" />
+            <el-form-item v-if="loginConfig.showCaptcha" prop="captchaText" label="验证码">
+              <div class="captcha-wrapper">
+                <el-input v-model="form.captchaText" placeholder="请输入验证码" size="large" />
+                <img v-if="captchaImage" :src="captchaImage" @click="refreshCaptcha" class="captcha-image" alt="验证码" title="点击刷新" />
               </div>
             </el-form-item>
+
+            <el-form-item>
+              <el-checkbox v-model="trustDevice" label="信任此设备（7天内免登录）" size="large" />
+            </el-form-item>
+            
             <el-form-item>
               <el-button type="primary" size="large" @click="handleLogin" :loading="loading" style="width: 100%;">
                 登 录
@@ -50,22 +48,23 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useUserStore } from '@/stores/user';
 import { User, Lock } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
-import { getSystemConfig } from '@/api/config.js'; // 引入获取配置的API
+import { getSystemConfig } from '@/api/config.js';
 
 const loginConfig = reactive({
-  showCaptcha: true, // 默认显示
+  showCaptcha: true,
 });
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const formRef = ref(null);
 const loading = ref(false);
-const rememberMe = ref(false);
 const captchaImage = ref('');
+const trustDevice = ref(false);
 
 const form = reactive({
   username: '',
@@ -80,20 +79,16 @@ const rules = {
 };
 
 const refreshCaptcha = () => {
-  // 通过给URL添加一个随机的时间戳，来强制浏览器请求新的图片，避免缓存
   captchaImage.value = `/api/auth/captcha?t=${new Date().getTime()}`;
 };
 
-// 在 onMounted 中增加获取配置的逻辑
 onMounted(async () => {
   refreshCaptcha();
   try {
-    // 在登录页加载时，获取系统配置
     const config = await getSystemConfig();
     loginConfig.showCaptcha = config.enableLoginCaptcha;
   } catch(e) {
-    // 获取配置失败，保持默认显示
-    console.error("Failed to get system config", e);
+    console.error("获取系统配置失败", e);
   }
 });
 
@@ -103,15 +98,18 @@ const handleLogin = async () => {
     if (!valid) return;
     loading.value = true;
     try {
-      await userStore.login(form);
+      const loginPayload = {
+        ...form,
+        trustDevice: trustDevice.value
+      };
+      await userStore.login(loginPayload);
+
       ElMessage.success('登录成功！');
-      setTimeout(() => {
-        router.push('/'); 
-      }, 1000);
-    } catch {
-      // 登录失败时，除了api/index.js的弹窗，我们还应该刷新验证码
+      router.replace(route.query.redirect || '/'); 
+    } catch (error) {
       refreshCaptcha();
-      form.captchaText = ''; // 清空用户输入的验证码
+      form.captchaText = '';
+    } finally {
       loading.value = false;
     } 
   });
@@ -131,14 +129,13 @@ const handleLogin = async () => {
 .login-container {
   display: flex;
   width: 720px;
-  height: 480px; /* 稍微增加高度以容纳验证码 */
+  height: 480px;
   background-color: #fff;
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.1);
   overflow: hidden;
 }
 
-/* 左侧宣传区域 */
 .login-promo {
   width: 40%;
   background-color: rgba(0, 0, 0, 0.3);
@@ -177,7 +174,6 @@ const handleLogin = async () => {
     pointer-events: none;
 }
 
-/* 右侧表单区域 */
 .login-form-section {
   width: 60%;
   display: flex;
@@ -198,12 +194,6 @@ const handleLogin = async () => {
   text-align: center;
   margin-bottom: 30px;
 }
-.form-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
 
 .captcha-wrapper {
   display: flex;
@@ -211,14 +201,12 @@ const handleLogin = async () => {
   gap: 10px;
 }
 .captcha-image {
-  height: 40px; /* 与 el-input large 尺寸对齐 */
+  height: 40px;
   cursor: pointer;
   border: 1px solid var(--el-border-color);
   border-radius: var(--el-border-radius-base);
 }
 
-
-/* 移动端适配 */
 @media (max-width: 992px) {
   .login-container {
     width: 90%;

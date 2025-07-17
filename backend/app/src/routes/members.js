@@ -137,25 +137,74 @@ export default async function (fastify, opts) {
 
   });
 
-  // --- 新增：删除会员 (物理删除) ---
+
+
+
+  // --- 逻辑删除 (常规操作) ---
   fastify.delete('/:id', async (request, reply) => {
     const { id } = request.params;
-      // 在删除会员前，先处理关联数据，避免外键约束失败
-      // 例如：将关联的卡片也删除或置为无效
-      await prisma.card.deleteMany({
-        where: { memberId: id },
-      });
-      // 注意：交易记录和预约记录通常不应删除，可以保留或解除关联
+    
+    const activeCards = await prisma.card.findMany({
+      where: { memberId: id, status: 'ACTIVE', balance: { gt: 0 } }
+    });
+    if (activeCards.length > 0) {
+      return reply.code(400).send({ message: '注销失败：该会员名下仍有带余额的有效卡。' });
+    }
 
-      await prisma.member.delete({
-        where: { id },
-      });
-      return { message: '会员已彻底删除' };
+    const updatedMember = await prisma.member.update({
+      where: { id },
+      data: { status: 'DELETED' },
+    });
 
+    await prisma.card.updateMany({
+      where: { memberId: id },
+      data: { status: 'FROZEN' }
+    });
+    
+    return { message: '会员已注销' };
   });
 
+  // --- 物理删除 (高风险，仅ADMIN可用) ---
+  fastify.delete('/:id/purge', { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] }, async (request, reply) => {
+    const { id } = request.params;
+    
+    const member = await prisma.member.findUnique({ where: { id } });
+    
+    if (!member) {
+      return reply.code(404).send({ message: '会员不存在' });
+    }
+    
+    // 安全校验：只允许删除状态为 DELETED 的会员
+    if (member.status !== 'DELETED') {
+      return reply.code(400).send({ message: '彻底删除失败：必须先将该会员注销。' });
+    }
 
+    // Prisma 会自动处理级联删除（如果 schema 中设置了 onDelete: Cascade）
+    // 或者需要手动处理关联，以防止外键约束失败。
+    // 为了数据完整性，我们选择解除关联，而不是删除历史记录。
+    await prisma.$transaction(async (tx) => {
+      // 1. 解除消费记录的关联
+      await tx.transaction.updateMany({
+        where: { memberId: id },
+        data: { memberId: null }
+      });
+      // 2. 解除预约记录的关联
+      await tx.appointment.updateMany({
+        where: { memberId: id },
+        data: { memberId: null }
+      });
+      // 3. 删除所有卡片
+      await tx.card.deleteMany({
+        where: { memberId: id }
+      });
+      // 4. 最后，物理删除会员
+      await tx.member.delete({
+        where: { id: id }
+      });
+    });
 
+    return { message: '会员数据已彻底清除。' };
+  });
 
 
   // 为指定会员办理新卡

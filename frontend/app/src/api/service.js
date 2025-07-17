@@ -26,3 +26,11 @@ export const updateService = (id, data) => {
     data,
   });
 };
+
+// 新增
+export const deleteService = (id) => {
+  return request({
+    url: `/services/${id}`,
+    method: 'delete',
+  });
+};

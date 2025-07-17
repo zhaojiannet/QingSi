@@ -21,7 +21,6 @@
         <el-table-column prop="name" label="姓名" width="100" />
         <el-table-column prop="phone" label="手机号" width="150" />
         
-        <!-- 核心改动1：改造会员卡列 -->
         <el-table-column label="会员卡" width="120" align="center">
           <template #default="{ row }">
             <div @click.stop="handleCardManagement(row)" class="card-cell-content">
@@ -48,12 +47,14 @@
 
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
+            <!-- 优化点5: 使用通用格式化函数 -->
+            <el-tag :type="memberStatusTagType(row.status)" size="small">{{ memberStatusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="registrationDate" label="注册日期" width="180">
           <template #default="{ row }">
-            {{ new Date(row.registrationDate).toLocaleString() }}
+            <!-- 优化点4: 使用统一时区处理函数 -->
+            {{ formatInAppTimeZone(row.registrationDate) }}
           </template>
         </el-table-column>
         <el-table-column prop="notes" label="备注" />
@@ -95,6 +96,10 @@ import { getMembers } from '@/api/member.js';
 import { Plus, Edit } from '@element-plus/icons-vue'; 
 import MemberForm from '@/components/MemberForm.vue';
 import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
+// 优化点5: 引入通用格式化函数
+import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
+// 优化点4: 引入统一时区处理函数
+import { formatInAppTimeZone } from '@/utils/date.js';
 
 // --- 响应式状态 ---
 const members = ref([]);
@@ -174,16 +179,7 @@ const paginationLayout = computed(() => {
     : 'total, sizes, prev, pager, next, jumper';
 });
 
-// --- 辅助函数 ---
-const statusText = (status) => {
-  const map = { ACTIVE: '正常', INACTIVE: '停用', FROZEN: '冻结', DELETED: '已注销' };
-  return map[status] || '未知';
-};
-
-const statusTagType = (status) => {
-  const map = { ACTIVE: 'success', INACTIVE: 'info', FROZEN: 'warning', DELETED: 'danger' };
-  return map[status] || 'info';
-};
+// --- 辅助函数 (本地函数已移除, 改用通用函数) ---
 </script>
 
 <style scoped>
@@ -217,11 +213,9 @@ const statusTagType = (status) => {
 .pagination-container .is-mobile {
   justify-content: center;
 }
-
-/* 核心改动4：覆盖表格单元格样式 */
 .table-container :deep(.el-table .el-table__cell) {
-  overflow: visible; /* 允许内容溢出 */
-  padding-top: 12px; /* 增加顶部内边距，为徽标留出空间 */
+  overflow: visible; 
+  padding-top: 12px;
 }
 .table-container :deep(.el-table .cell) {
   overflow: visible;
@@ -230,6 +224,6 @@ const statusTagType = (status) => {
   cursor: pointer;
 }
 .card-badge {
-  transform: translateY(-2px); /* 微调徽标位置 */
+  transform: translateY(-2px);
 }
 </style>

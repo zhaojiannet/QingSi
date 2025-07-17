@@ -9,3 +9,21 @@ export const login = (data) => {
     data,
   });
 };
+
+// 新增
+export const refreshToken = (data) => {
+  return request({
+    url: '/auth/refresh',
+    method: 'post',
+    data, // { refreshToken }
+  });
+};
+
+// 新增
+export const logout = (data) => {
+  return request({
+    url: '/auth/logout',
+    method: 'post',
+    data, // { refreshToken }
+  });
+};

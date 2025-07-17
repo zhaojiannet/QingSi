@@ -24,10 +24,15 @@
       </el-form-item>
       
       <el-form-item v-if="isEditMode" label="账户状态" prop="status">
-        <el-select v-model="formData.status" placeholder="请选择状态" style="width: 100%;">
+        <el-select 
+          v-model="formData.status" 
+          placeholder="请选择状态" 
+          style="width: 100%;"
+          :disabled="formData.status === 'DELETED'"
+        >
+          <!-- 核心修改：更新下拉框选项文本 -->
           <el-option label="正常" value="ACTIVE" />
-          <el-option label="停用" value="INACTIVE" />
-          <el-option label="冻结" value="FROZEN" />
+          <el-option label="冻结" value="INACTIVE" />
         </el-select>
       </el-form-item>
 
@@ -38,22 +43,39 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-popconfirm
-          v-if="isEditMode && initialStatus === 'INACTIVE'"
-          title="确定要彻底删除这位会员吗？所有关联数据将丢失！"
-          @confirm="handleDelete"
-          width="220"
-        >
-          <template #reference>
-            <el-button type="danger" link :loading="isDeleteLoading">删除会员</el-button>
-          </template>
-        </el-popconfirm>
-        
-        <div v-else></div>
+        <!-- 左侧危险操作区域 -->
+        <div>
+          <!-- 常规注销按钮 -->
+          <el-popconfirm
+            v-if="isEditMode && formData.status !== 'DELETED'"
+            title="确定要注销该账户吗？"
+            confirm-button-text="确认注销"
+            @confirm="handleDelete"
+          >
+            <template #reference>
+              <!-- 核心修改：更新按钮文本 -->
+              <el-button type="danger" link :loading="isDeleteLoading">注销账户</el-button>
+            </template>
+          </el-popconfirm>
 
+          <!-- 仅当会员已注销且当前用户是ADMIN时，才显示“彻底删除”按钮 -->
+          <el-popconfirm
+            v-if="isEditMode && formData.status === 'DELETED' && userStore.userRole === 'ADMIN'"
+            title="警告：此操作将永久删除该会员的所有数据且不可恢复！确定吗？"
+            confirm-button-text="我确定，彻底删除"
+            @confirm="handlePurge"
+          >
+            <template #reference>
+              <!-- 核心修改：更新按钮文本 -->
+              <el-button type="danger" :loading="isDeleteLoading">彻底删除</el-button>
+            </template>
+          </el-popconfirm>
+        </div>
+
+        <!-- 右侧常规操作区域 -->
         <div>
           <el-button @click="isDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleSubmit" :loading="isSubmitLoading">确定</el-button>
+          <el-button type="primary" @click="handleSubmit" :loading="isSubmitLoading" :disabled="formData.status === 'DELETED'">确定</el-button>
         </div>
       </div>
     </template>
@@ -62,34 +84,24 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue';
-import { addMember, updateMember, deleteMember } from '@/api/member.js';
+import { addMember, updateMember, deleteMember, purgeMember } from '@/api/member.js';
+import { useUserStore } from '@/stores/user.js';
 import { ElMessage } from 'element-plus';
 
-// --- 状态管理 ---
+const userStore = useUserStore();
 const isDialogVisible = ref(false);
 const isSubmitLoading = ref(false);
 const isDeleteLoading = ref(false);
 const formRef = ref(null);
-const initialStatus = ref('');
 
-// 定义表单的初始状态生成函数
 const getInitialFormData = () => ({
-  id: null,
-  name: '',
-  phone: '',
-  gender: 'UNKNOWN',
-  birthday: null,
-  status: 'ACTIVE',
-  notes: ''
+  id: null, name: '', phone: '', gender: 'UNKNOWN',
+  birthday: null, status: 'ACTIVE', notes: ''
 });
 
-// 使用函数初始化响应式表单数据
 const formData = reactive(getInitialFormData());
-
-// 判断当前是否为编辑模式
 const isEditMode = computed(() => !!formData.id);
 
-// --- 表单校验规则 ---
 const formRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   phone: [
@@ -97,42 +109,31 @@ const formRules = {
     { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }
   ]
 };
-
-// --- 事件定义 ---
 const emit = defineEmits(['success']);
 
-// --- 方法定义 ---
-
-// 打开对话框 (供父组件调用)
 const open = (memberData = null) => {
-  if (memberData) { // 编辑模式
+  if (memberData) {
     Object.assign(formData, memberData);
-    initialStatus.value = memberData.status;
+  } else {
+    Object.assign(formData, getInitialFormData());
   }
   isDialogVisible.value = true;
 };
 
-// 对话框完全关闭后的回调
 const onDialogClosed = () => {
-  // 彻底重置表单数据
   Object.assign(formData, getInitialFormData());
-  // 清除校验状态
-  formRef.value.clearValidate();
-  // 重置其他状态
-  initialStatus.value = '';
+  if (formRef.value) formRef.value.clearValidate();
 };
 
-// 提交表单 (新增或更新)
 const handleSubmit = async () => {
+  if (formData.status === 'DELETED') return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
-
     isSubmitLoading.value = true;
     try {
       const apiCall = isEditMode.value 
         ? updateMember(formData.id, formData) 
         : addMember(formData);
-      
       await apiCall;
       ElMessage.success(`${isEditMode.value ? '更新' : '新增'}会员成功`);
       isDialogVisible.value = false;
@@ -143,14 +144,14 @@ const handleSubmit = async () => {
   });
 };
 
-// 删除会员
+// 处理逻辑删除（注销账户）
 const handleDelete = async () => {
   if (!isEditMode.value) return;
-
   isDeleteLoading.value = true;
   try {
     await deleteMember(formData.id);
-    ElMessage.success('删除成功');
+    // 核心修改：更新成功提示
+    ElMessage.success('账户注销成功');
     isDialogVisible.value = false;
     emit('success');
   } finally {
@@ -158,7 +159,21 @@ const handleDelete = async () => {
   }
 };
 
-// 暴露 open 方法给父组件
+// 处理物理删除（彻底删除）
+const handlePurge = async () => {
+  if (!isEditMode.value) return;
+  isDeleteLoading.value = true;
+  try {
+    await purgeMember(formData.id);
+    // 核心修改：更新成功提示
+    ElMessage.warning('会员数据已彻底删除');
+    isDialogVisible.value = false;
+    emit('success');
+  } finally {
+    isDeleteLoading.value = false;
+  }
+};
+
 defineExpose({ open });
 </script>
 
@@ -169,14 +184,8 @@ defineExpose({ open });
   align-items: center;
 }
 
-/* --- 核心改动：使用更高优先级的选择器强制覆盖 --- */
-@media (max-width: 767px) {
-  /* 
-    使用 :global 包裹 :deep() 是一种在某些Vue版本和场景下
-    确保深度选择器生效的 hacky 但有效的方法。
-    我们直接针对 .el-dialog 这个类进行修改。
-  */
-  :global(.el-dialog) {
+:global(.el-dialog) {
+  @media (max-width: 767px) {
     width: 90% !important;
   }
 }

@@ -1,4 +1,4 @@
-//frontend/app/src/router/index.js
+// frontend/app/src/router/index.js
 
 import { createRouter, createWebHistory } from 'vue-router';
 import NProgress from 'nprogress';
@@ -12,7 +12,7 @@ const routes = [
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),
-    meta: { isPublic: true } // 标记为公共页面，路由守卫会用到
+    meta: { isPublic: true }
   },
   {
     path: '/transactions',
@@ -32,14 +32,17 @@ const routes = [
   {
     path: '/reports',
     name: 'reports',
-    component: () => import('../views/ReportView.vue')
+    component: () => import('../views/ReportView.vue'),
+    // 权限元信息：只有 ADMIN 和 MANAGER 可以访问
+    meta: { roles: ['ADMIN', 'MANAGER'] }
   },
   {
     path: '/settings',
     name: 'settings',
-    component: () => import('../views/SettingsView.vue')
+    component: () => import('../views/SettingsView.vue'),
+    // 权限元信息：只有 ADMIN 可以访问
+    meta: { roles: ['ADMIN'] }
   },
-  // --- 核心修改1：为根路径'/'添加重定向到默认页面 ---
   {
     path: '/',
     redirect: '/transactions'
@@ -56,23 +59,42 @@ const router = createRouter({
   routes,
 });
 
-// --- 核心修改2：添加完整的全局前置守卫 ---
+// 升级后的全局前置守卫
 router.beforeEach((to, from, next) => {
   NProgress.start();
   const userStore = useUserStore();
   const isLoggedIn = userStore.isLoggedIn;
-  
-  // 目标路由不是公共页面，且用户未登录，则重定向到登录页
-  if (!to.meta.isPublic && !isLoggedIn) {
-    next({ name: 'login' });
-  } 
-  // 如果用户已登录，但又想访问登录页，则重定向到首页
-  else if (to.meta.isPublic && isLoggedIn) {
-    next({ path: '/' });
-  }
-  // 其他所有情况，直接放行
-  else {
-    next();
+  const userRole = userStore.userRole;
+
+  if (to.meta.isPublic) {
+    // 如果是公共页面
+    if (isLoggedIn && to.name === 'login') {
+      // 已登录用户访问登录页，重定向到首页
+      next({ path: '/' });
+    } else {
+      next();
+    }
+  } else {
+    // 如果是需要认证的页面
+    if (!isLoggedIn) {
+      // 未登录，重定向到登录页
+      next({ name: 'login', query: { redirect: to.fullPath } });
+    } else {
+      // 已登录，检查角色权限
+      if (to.meta.roles) {
+        // 如果路由需要特定角色
+        if (to.meta.roles.includes(userRole)) {
+          // 角色匹配，放行
+          next();
+        } else {
+          // 角色不匹配，重定向到404页面（或一个专门的403无权限页面）
+          next({ name: 'NotFound', query: { unauthorized: '1' } });
+        }
+      } else {
+        // 如果路由不需要特定角色，直接放行
+        next();
+      }
+    }
   }
 });
 

@@ -4,38 +4,91 @@
       <h2 class="page-title">系统设置</h2>
     </div>
 
+    <!-- 核心修复：移除所有 v-if，改为通过 CSS class 控制显示 -->
     <el-tabs v-model="activeTab" class="settings-tabs">
-      <el-tab-pane label="服务项目管理" name="services">
+      <el-tab-pane 
+        label="服务项目管理" 
+        name="services"
+        :class="{ 'is-hidden': !canAccessServiceManagement }"
+      >
         <ServiceManager />
       </el-tab-pane>
       
-      <el-tab-pane label="会员卡类型管理" name="cardTypes">
+      <el-tab-pane 
+        label="会员卡类型管理" 
+        name="cardTypes"
+        :class="{ 'is-hidden': !canAccessCardTypeManagement }"
+      >
         <CardTypeManager />
       </el-tab-pane>
       
-      <!-- 核心改动：引入新组件 -->
-      <el-tab-pane label="员工管理" name="staff">
+      <el-tab-pane 
+        label="员工管理" 
+        name="staff"
+        :class="{ 'is-hidden': !canAccessStaffManagement }"
+      >
         <StaffManager />
       </el-tab-pane>
 
-        <el-tab-pane label="账户设置" name="account">
-    <PasswordManager />
-  </el-tab-pane>
-      <el-tab-pane label="通用设置" name="general"><ConfigManager /></el-tab-pane>
+      <el-tab-pane label="账户设置" name="account">
+        <PasswordManager />
+      </el-tab-pane>
+
+      <el-tab-pane 
+        label="通用设置" 
+        name="general"
+        :class="{ 'is-hidden': !canAccessGeneralSettings }"
+      >
+        <ConfigManager />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
+import { useUserStore } from '@/stores/user';
 import ServiceManager from '@/components/settings/ServiceManager.vue';
 import CardTypeManager from '@/components/settings/CardTypeManager.vue';
-// 核心改动：引入新组件
 import StaffManager from '@/components/settings/StaffManager.vue';
 import PasswordManager from '@/components/settings/PasswordManager.vue';
 import ConfigManager from '@/components/settings/ConfigManager.vue';
 
+const userStore = useUserStore();
+
+const canAccessServiceManagement = computed(() => userStore.userRole === 'ADMIN');
+const canAccessCardTypeManagement = computed(() => userStore.userRole === 'ADMIN');
+// --- 核心修改：店长也可以管理员工 ---
+const canAccessStaffManagement = computed(() => ['ADMIN', 'MANAGER'].includes(userStore.userRole));
+const canAccessGeneralSettings = computed(() => userStore.userRole === 'ADMIN');
+
+
+// 默认激活第一个Tab，逻辑大大简化
 const activeTab = ref('services');
+
+// 确保在组件挂载后，如果默认的Tab对当前用户不可见，
+// 则自动切换到第一个可见的Tab。
+onMounted(async () => {
+    // 等待DOM更新，确保 canAccess... 计算属性已经获取到正确的角色
+    await nextTick();
+
+    const tabsVisibility = {
+        services: canAccessServiceManagement.value,
+        cardTypes: canAccessCardTypeManagement.value,
+        staff: canAccessStaffManagement.value,
+        account: true, // 账户设置总是可见
+        general: canAccessGeneralSettings.value,
+    };
+
+    // 如果当前激活的Tab是不可见的
+    if (!tabsVisibility[activeTab.value]) {
+        // 找到第一个可见的Tab并设置为激活状态
+        const firstVisibleTab = Object.keys(tabsVisibility).find(tab => tabsVisibility[tab]);
+        if (firstVisibleTab) {
+            activeTab.value = firstVisibleTab;
+        }
+    }
+});
 </script>
 
 <style scoped>
@@ -50,5 +103,10 @@ const activeTab = ref('services');
 .settings-tabs :deep(.el-tabs__content) {
   flex-grow: 1;
   overflow-y: auto;
+}
+
+/* 核心修复：使用 :deep() 选择器来隐藏无权限的 Tab 标签 */
+.settings-tabs :deep(.el-tab-pane.is-hidden) {
+    display: none;
 }
 </style>

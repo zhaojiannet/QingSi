@@ -6,10 +6,10 @@
     <el-table :data="cardTypes" stripe v-loading="loading">
       <el-table-column prop="name" label="卡类型名称" />
       <el-table-column prop="initialPrice" label="办卡金额" width="150" align="right">
-        <template #default="{ row }">¥{{ row.initialPrice.toFixed(2) }}</template>
+        <template #default="{ row }">¥{{ new Decimal(row.initialPrice).toFixed(2) }}</template>
       </el-table-column>
        <el-table-column prop="discountRate" label="折扣率" width="120" align="center">
-         <template #default="{ row }">{{ (row.discountRate * 10).toFixed(1) }} 折</template>
+         <template #default="{ row }">{{ new Decimal(row.discountRate).times(10).toFixed(1) }} 折</template>
        </el-table-column>
        <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
@@ -44,8 +44,24 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="isSubmitting">确定</el-button>
+        <div class="dialog-footer">
+          <div>
+            <!-- 核心修改：v-if 判断的是 initialStatus -->
+            <el-popconfirm
+              v-if="form.id && initialStatus === 'UNAVAILABLE'"
+              title="确定要删除该卡类型吗？此操作不可恢复。"
+              @confirm="handleDelete(form.id)"
+            >
+              <template #reference>
+                <el-button type="danger" link>删除卡类型</el-button>
+              </template>
+            </el-popconfirm>
+          </div>
+          <div>
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="handleSubmit" :loading="isSubmitting">确定</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -53,15 +69,18 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { getCardTypeList, createCardType, updateCardType } from '@/api/cardType.js';
+import { getCardTypeList, createCardType, updateCardType, deleteCardType } from '@/api/cardType.js';
 import { ElMessage } from 'element-plus';
 import { Plus } from '@element-plus/icons-vue';
+import Decimal from 'decimal.js';
 
 const cardTypes = ref([]);
 const loading = ref(false);
 const dialogVisible = ref(false);
 const isSubmitting = ref(false);
 const formRef = ref(null);
+// 核心修改：新增 ref 记录初始状态
+const initialStatus = ref('');
 
 const getInitialForm = () => ({
   id: null,
@@ -91,22 +110,30 @@ onMounted(fetchCardTypes);
 
 const handleAdd = () => {
   Object.assign(form, getInitialForm());
+  initialStatus.value = '';
   dialogVisible.value = true;
 };
 
 const handleEdit = (row) => {
-  Object.assign(form, row);
+  const editData = { 
+    ...row, 
+    initialPrice: Number(row.initialPrice),
+    discountRate: Number(row.discountRate)
+  };
+  Object.assign(form, editData);
+  // 核心修改：记录打开弹窗时的状态
+  initialStatus.value = row.status;
   dialogVisible.value = true;
 };
 
 const onDialogClosed = () => {
-    // 清空校验状态
     if(formRef.value) {
         formRef.value.clearValidate();
     }
 }
 
 const handleSubmit = async () => {
+  if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
     isSubmitting.value = true;
@@ -119,16 +146,33 @@ const handleSubmit = async () => {
         ElMessage.success('新增成功');
       }
       dialogVisible.value = false;
-      fetchCardTypes();
+      await fetchCardTypes();
     } finally {
       isSubmitting.value = false;
     }
   });
+};
+
+const handleDelete = async (id) => {
+  try {
+    await deleteCardType(id);
+    ElMessage.success('删除成功');
+    dialogVisible.value = false;
+    await fetchCardTypes();
+  } catch {
+    // API层已处理
+  }
 };
 </script>
 
 <style scoped>
 .action-bar {
   margin-bottom: 20px;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 </style>

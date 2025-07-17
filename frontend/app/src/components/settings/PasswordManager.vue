@@ -81,7 +81,7 @@ const handleSubmit = async () => {
         newPassword: form.newPassword,
       });
 
-      // 使用 ElMessage 进行成功的轻量提示
+      // --- 优化：使用后端返回的更准确的提示信息 ---
       ElMessage.success(response.message || '密码修改成功，即将退出');
       
       // 延迟 1.5 秒后执行登出，让用户能看到提示信息
@@ -91,7 +91,6 @@ const handleSubmit = async () => {
 
     } catch {
       // 失败的错误提示已由 src/api/index.js 中的拦截器统一处理
-      // 这里无需再做任何操作
     } finally {
       loading.value = false;
     }

@@ -6,18 +6,19 @@
     top="10vh"
     @open="onDialogOpen"
   >
-    <div v-if="loading" v-loading="loading" style="height: 300px;"></div>
-    <div v-else-if="member" class="detail-content">
+    <el-skeleton v-if="loading" :rows="10" animated />
+    
+    <div v-else-if="member && !apiError" class="detail-content">
       <el-descriptions :column="2" border>
         <el-descriptions-item label="姓名">{{ member.name }}</el-descriptions-item>
         <el-descriptions-item label="手机号">{{ member.phone }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ member.gender === 'MALE' ? '男' : (member.gender === 'FEMALE' ? '女' : '未知') }}</el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="statusTagType(member.status)" size="small">{{ statusText(member.status) }}</el-tag>
+          <el-tag :type="memberStatusTagType(member.status)" size="small">{{ memberStatusText(member.status) }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="注册日期" :span="2">{{ new Date(member.registrationDate).toLocaleDateString() }}</el-descriptions-item>
-        <el-descriptions-item label="生日">{{ member.birthday ? new Date(member.birthday).toLocaleDateString() : '未设置' }}</el-descriptions-item>
-        <el-descriptions-item label="最后消费">{{ member.lastVisitDate ? new Date(member.lastVisitDate).toLocaleString() : '无记录' }}</el-descriptions-item>
+        <el-descriptions-item label="注册日期" :span="2">{{ formatDateInAppTimeZone(member.registrationDate) }}</el-descriptions-item>
+        <el-descriptions-item label="生日">{{ formatDateInAppTimeZone(member.birthday) }}</el-descriptions-item>
+        <el-descriptions-item label="最后消费">{{ formatInAppTimeZone(member.lastVisitDate) }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ member.notes || '无' }}</el-descriptions-item>
       </el-descriptions>
 
@@ -29,56 +30,71 @@
             <span class="card-name">{{ card.cardType.name }}</span>
             <el-tag size="small" :type="cardStatusTagType(card.status)">{{ cardStatusText(card.status) }}</el-tag>
           </div>
-          
-          <!-- 核心改动1：将余额和办卡时间包裹在一个容器中，以便于右对齐 -->
           <div class="card-details-right">
             <div class="card-balance">
-              余额: <span>¥{{ card.balance.toFixed(2) }}</span>
+              <!-- 核心修复点：对所有金额进行类型转换 -->
+              余额: <span>¥{{ new Decimal(card.balance).toFixed(2) }}</span>
             </div>
-            <!-- 核心改动2：新增办卡时间显示 -->
             <div class="card-issue-date">
-              办卡: {{ new Date(card.issueDate).toLocaleString() }}
+              办卡: {{ formatInAppTimeZone(card.issueDate) }}
             </div>
           </div>
         </div>
-        
         <div class="card-item total-balance">
           <span class="card-name">所有有效卡总余额</span>
           <div class="card-balance">
             <span>¥{{ totalActiveBalance.toFixed(2) }}</span>
           </div>
         </div>
-
       </div>
       <el-empty v-else description="暂无会员卡" />
 
       <el-divider>办理新卡</el-divider>
       <div class="issue-card-section">
-        <el-select 
-          v-model="selectedCardTypeId" 
-          placeholder="选择要办理的卡类型" 
-          style="width: 100%; margin-bottom: 10px;"
-        >
-          <el-option
-            v-for="cardType in availableCardTypes"
-            :key="cardType.id"
-            :label="`${cardType.name} (售价: ¥${cardType.initialPrice.toFixed(2)})`"
-            :value="cardType.id"
-          />
-        </el-select>
+        <el-form :model="issueCardForm" label-position="top">
+          <el-form-item label="选择卡类型">
+            <el-select v-model="issueCardForm.cardTypeId" placeholder="选择要办理的卡类型" style="width: 100%;">
+              <el-option
+                v-for="cardType in availableCardTypes"
+                :key="cardType.id"
+                :label="`${cardType.name} (售价: ¥${new Decimal(cardType.initialPrice).toFixed(2)})`"
+                :value="cardType.id"
+              />
+            </el-select>
+          </el-form-item>
+          
+          <el-form-item v-if="commissionableStaff.length > 0" label="服务员工 (可选)">
+            <el-select v-model="issueCardForm.staffId" placeholder="选择服务员工" style="width: 100%;" clearable>
+                <el-option
+                    v-for="staff in commissionableStaff"
+                    :key="staff.id"
+                    :label="`${staff.name} (${staff.position})`"
+                    :value="staff.id"
+                />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="支付方式">
+            <el-radio-group v-model="issueCardForm.paymentMethod">
+              <el-radio-button value="CASH">现金</el-radio-button>
+              <el-radio-button value="WECHAT_PAY">微信</el-radio-button>
+              <el-radio-button value="ALIPAY">支付宝</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
         <el-button 
           type="success" 
-          style="width: 100%;" 
+          style="width: 100%; margin-top: 10px;" 
           @click="handleIssueCard" 
           :loading="isIssuing"
-          :disabled="!selectedCardTypeId"
+          :disabled="!issueCardForm.cardTypeId"
         >
           确认办理
         </el-button>
       </div>
-
     </div>
-    <el-empty v-else description="无法加载会员信息" />
+    <el-result v-else-if="apiError" icon="error" title="加载失败" sub-title="获取会员详细信息失败，请检查网络或权限后重试。">
+    </el-result>
     
     <template #footer>
         <el-button type="primary" @click="dialogVisible = false">关闭</el-button>
@@ -87,57 +103,59 @@
 </template>
 
 <script setup>
-// --- script部分与您提供的完全一致，无需任何改动 ---
-import { ref, computed } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { getMemberById } from '@/api/member.js';
 import { getCardTypeList } from '@/api/cardType.js';
 import { issueCardWithTransaction } from '@/api/card.js';
+import { getStaffList } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
+import Decimal from 'decimal.js'; // 确保引入 Decimal.js
+import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType } from '@/utils/formatters.js';
+import { formatInAppTimeZone, formatDateInAppTimeZone } from '@/utils/date.js';
 
 const dialogVisible = ref(false);
 const loading = ref(false);
 const isIssuing = ref(false);
 const member = ref(null);
 const allCardTypes = ref([]);
-const selectedCardTypeId = ref('');
+const allStaff = ref([]);
+const apiError = ref(false);
 
-const statusText = (status) => {
-  const map = { ACTIVE: '正常', INACTIVE: '停用', FROZEN: '冻结', DELETED: '已注销' };
-  return map[status] || '未知';
-};
-
-const statusTagType = (status) => {
-  const map = { ACTIVE: 'success', INACTIVE: 'info', FROZEN: 'warning', DELETED: 'danger' };
-  return map[status] || 'info';
-};
-
-const cardStatusText = (status) => {
-  const map = { ACTIVE: '有效', DEPLETED: '已用尽', EXPIRED: '已过期', FROZEN: '已冻结' };
-  return map[status] || '未知';
-};
-
-const cardStatusTagType = (status) => {
-  const map = { ACTIVE: 'success', DEPLETED: 'info', EXPIRED: 'warning', FROZEN: 'danger' };
-  return map[status] || 'info';
-};
+const issueCardForm = reactive({
+  cardTypeId: '',
+  staffId: null,
+  paymentMethod: 'CASH',
+});
 
 const availableCardTypes = computed(() => {
   return allCardTypes.value.filter(ct => ct.status === 'AVAILABLE');
 });
 
+const commissionableStaff = computed(() => {
+    return allStaff.value.filter(s => s.status === 'ACTIVE' && s.countsCommission);
+});
+
 const onDialogOpen = async () => {
   if (!member.value?.id) return;
   loading.value = true;
-  selectedCardTypeId.value = '';
+  apiError.value = false;
+  
+  issueCardForm.cardTypeId = '';
+  issueCardForm.staffId = null;
+  issueCardForm.paymentMethod = 'CASH';
+
   try {
-    const [memberData, cardTypesData] = await Promise.all([
+    const [memberData, cardTypesData, staffData] = await Promise.all([
       getMemberById(member.value.id),
-      getCardTypeList()
+      getCardTypeList(),
+      getStaffList()
     ]);
     member.value = memberData;
     allCardTypes.value = cardTypesData;
-  } catch {
-    // API层已处理
+    allStaff.value = staffData;
+  } catch (error) {
+    apiError.value = true;
+    console.error('获取会员详情数据失败:', error);
   } finally {
     loading.value = false;
   }
@@ -149,16 +167,19 @@ const open = (memberId) => {
 };
 
 const handleIssueCard = async () => {
-  if (!selectedCardTypeId.value) {
+  if (!issueCardForm.cardTypeId) {
     ElMessage.warning('请先选择要办理的卡类型');
     return;
   }
   isIssuing.value = true;
   try {
-    await issueCardWithTransaction({ 
-      memberId: member.value.id, 
-      cardTypeId: selectedCardTypeId.value 
-    });
+    const payload = {
+        memberId: member.value.id,
+        cardTypeId: issueCardForm.cardTypeId,
+        paymentMethod: issueCardForm.paymentMethod,
+        ...(issueCardForm.staffId && { staffId: issueCardForm.staffId }),
+    };
+    await issueCardWithTransaction(payload);
     ElMessage.success('办卡成功，并已生成消费记录！');
     
     await onDialogOpen();
@@ -172,11 +193,11 @@ const emit = defineEmits(['success']);
 
 const totalActiveBalance = computed(() => {
   if (!member.value || !member.value.cards) {
-    return 0;
+    return new Decimal(0);
   }
   return member.value.cards
     .filter(card => card.status === 'ACTIVE')
-    .reduce((sum, card) => sum + card.balance, 0);
+    .reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
 });
 
 defineExpose({ open });
@@ -197,7 +218,7 @@ defineExpose({ open });
 .card-name { font-weight: 500; }
 .card-balance span { font-weight: bold; color: #E6A23C; }
 .issue-card-section {
-  padding: 10px;
+  padding: 15px;
   background-color: #f8f8f9;
   border: 1px solid #e4e7ed;
   border-radius: 4px;
@@ -215,8 +236,6 @@ defineExpose({ open });
 .total-balance .card-balance span {
   font-size: 1.1em;
 }
-
-/* --- 核心改动3：新增的样式 --- */
 .card-details-right {
   text-align: right;
 }

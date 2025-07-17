@@ -72,6 +72,7 @@ export default async function (fastify, opts) {
         const newTransaction = await tx.transaction.create({
           data: {
             id: generateId(),
+            summary: '项目消费', // 为常规消费添加一个默认摘要
             totalAmount: totalAmount.toNumber(),
             actualPaidAmount: actualPaidAmount.toNumber(),
             discountAmount: totalAmount.minus(actualPaidAmount).toNumber(),
@@ -186,6 +187,7 @@ export default async function (fastify, opts) {
         const newTransaction = await tx.transaction.create({
             data: {
                 id: generateId(),
+                summary: '项目消费 (会员卡组合支付)', // 为组合支付添加一个摘要
                 totalAmount: totalAmount.toNumber(),
                 actualPaidAmount: actualPaidTotal.toNumber(),
                 discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
@@ -326,4 +328,46 @@ export default async function (fastify, opts) {
       return formattedTransactions;
 
   });
+
+
+
+    // --- 优化点2: 新增流水查询接口 ---
+  fastify.get('/', async (request, reply) => {
+    const { startDate, endDate } = request.query;
+
+    const where = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      where.transactionTime = { gte: start, lte: end };
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include: {
+        member: { select: { name: true } },
+        staff: { select: { name: true } },
+        items: { 
+          include: { 
+            service: { select: { name: true, standardPrice: true } } 
+          } 
+        },
+      },
+      orderBy: { transactionTime: 'desc' },
+    });
+
+    const formattedTransactions = transactions.map(t => ({
+      ...t,
+      totalAmount: new Decimal(t.totalAmount).toFixed(2),
+      actualPaidAmount: new Decimal(t.actualPaidAmount).toFixed(2),
+      discountAmount: new Decimal(t.discountAmount).toFixed(2),
+    }));
+
+    return formattedTransactions;
+  });
+
+
+
 }

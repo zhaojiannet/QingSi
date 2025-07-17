@@ -55,15 +55,31 @@
     </el-form-item>
   </el-form>
   <template #footer>
-    <el-button @click="dialogVisible = false">取消</el-button>
-    <el-button type="primary" @click="handleSubmit" :loading="isSubmitting">确定</el-button>
+    <div class="dialog-footer">
+      <div>
+        <!-- 核心修改：v-if 判断的是 initialStatus -->
+        <el-popconfirm
+          v-if="form.id && initialStatus === 'INACTIVE'"
+          title="确定要删除该员工吗？此操作不可恢复。"
+          @confirm="handleDelete(form.id)"
+        >
+          <template #reference>
+            <el-button type="danger" link>删除员工</el-button>
+          </template>
+        </el-popconfirm>
+      </div>
+      <div>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="isSubmitting">确定</el-button>
+      </div>
+    </div>
   </template>
 </el-dialog>
 </div>
 </template>
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { getStaffList, createStaff, updateStaff } from '@/api/staff.js';
+import { getStaffList, createStaff, updateStaff, deleteStaff } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
 import { Plus } from '@element-plus/icons-vue';
 
@@ -72,6 +88,8 @@ const loading = ref(false);
 const dialogVisible = ref(false);
 const isSubmitting = ref(false);
 const formRef = ref(null);
+// 核心修改：新增 ref 记录初始状态
+const initialStatus = ref('');
 
 const getInitialForm = () => ({
 id: null,
@@ -101,15 +119,19 @@ onMounted(fetchStaff);
 
 const handleAdd = () => {
 Object.assign(form, getInitialForm());
+initialStatus.value = '';
 dialogVisible.value = true;
 };
 
 const handleEdit = (row) => {
 Object.assign(form, row);
+// 核心修改：记录打开弹窗时的状态
+initialStatus.value = row.status;
 dialogVisible.value = true;
 };
 
 const handleSubmit = async () => {
+if (!formRef.value) return;
 await formRef.value.validate(async (valid) => {
 if (!valid) return;
 isSubmitting.value = true;
@@ -122,15 +144,32 @@ await createStaff(form);
 ElMessage.success('新增成功');
 }
 dialogVisible.value = false;
-fetchStaff();
+await fetchStaff();
 } finally {
 isSubmitting.value = false;
 }
 });
 };
+
+const handleDelete = async (id) => {
+  try {
+    await deleteStaff(id);
+    ElMessage.success('删除成功');
+    dialogVisible.value = false;
+    await fetchStaff();
+  } catch {
+    // API层已处理
+  }
+};
 </script>
 <style scoped>
 .action-bar {
 margin-bottom: 20px;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 </style>

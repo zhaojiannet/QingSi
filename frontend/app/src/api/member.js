@@ -35,9 +35,18 @@ export const updateMember = (id, data) => {
   });
 };
 
+// 这个接口现在执行的是逻辑删除
 export const deleteMember = (id) => {
   return request({
     url: `/members/${id}`,
+    method: 'delete',
+  });
+};
+
+// --- 新增：物理删除会员的API ---
+export const purgeMember = (id) => {
+  return request({
+    url: `/members/${id}/purge`,
     method: 'delete',
   });
 };

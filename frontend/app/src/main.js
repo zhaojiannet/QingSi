@@ -1,4 +1,5 @@
-// src/main.js
+// frontend/app/src/main.js
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
@@ -21,4 +22,16 @@ app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
 
-app.mount('#app')
+// 等待路由准备就绪后再挂载应用
+router.isReady().then(() => {
+  app.mount('#app')
+
+  // --- 优化点1: 修复闪烁问题 ---
+  // 挂载后，移除 body 的 loading class，显示 #app 容器
+  document.body.classList.remove('app-loading');
+  // 同时，可以把 loading 的 DOM 元素也移除掉
+  const loadingEl = document.querySelector('.loading-wrapper');
+  if (loadingEl) {
+    loadingEl.parentNode.removeChild(loadingEl);
+  }
+})

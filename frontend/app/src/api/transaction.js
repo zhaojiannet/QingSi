@@ -1,5 +1,4 @@
-//frontend/app/src/api/transaction.js
-
+// frontend/app/src/api/transaction.js
 import request from './index.js';
 
 export const createTransaction = (data) => {
@@ -17,7 +16,15 @@ export const getTodayTransactions = () => {
   });
 };
 
-// --- 新增 ---
+// --- 优化点2: 新增流水查询API ---
+export const getTransactionsByDateRange = (params) => {
+  return request({
+    url: '/transactions',
+    method: 'get',
+    params, // { startDate, endDate }
+  });
+};
+
 export const createComboCheckout = (data) => {
   return request({
     url: '/transactions/combo-checkout',
