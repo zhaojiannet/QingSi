@@ -1,3 +1,6 @@
+//frontend/app/src/api/index.js
+
+
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';

@@ -1,4 +1,4 @@
-// frontend/src/api/cardType.js
+// frontend/app/src/api/cardType.js
 
 import request from './index.js';
 

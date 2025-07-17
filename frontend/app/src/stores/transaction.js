@@ -1,4 +1,5 @@
-// src/stores/transaction.js
+//frontend/app/src/stores/transaction.js
+
 import { defineStore } from 'pinia';
 
 export const useTransactionStore = defineStore('transaction', {

@@ -1,4 +1,5 @@
-// src/db/prisma.js
+//backend/app/src/db/prisma.js
+
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();

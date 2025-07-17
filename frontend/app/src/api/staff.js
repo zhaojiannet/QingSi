@@ -1,3 +1,5 @@
+//frontend/app/src/api/staff.js
+
 import request from './index.js';
 
 export const getStaffList = (params) => {

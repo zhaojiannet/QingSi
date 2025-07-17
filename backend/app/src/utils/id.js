@@ -1,4 +1,5 @@
-// src/utils/id.js
+// backend/app/src/utils/id.js
+
 import { customAlphabet } from 'nanoid';
 
 // 定义字符集（不含易混淆字符如 1,l,0,O）和长度

@@ -1,4 +1,4 @@
-// backend/app/src/server.js (已添加全局错误处理)
+// backend/app/src/server.js
 
 import dotenv from 'dotenv';
 dotenv.config();

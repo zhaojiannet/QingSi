@@ -1,4 +1,5 @@
-// src/routes/reports.js
+// backend/app/src/routes/reports.js
+
 import prisma from '../db/prisma.js';
 import Decimal from 'decimal.js';
 

@@ -1,3 +1,6 @@
+//frontend/app/src/api/service.js
+
+
 import request from './index.js';
 
 export const getServiceList = (params) => {

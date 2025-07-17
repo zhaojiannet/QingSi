@@ -1,3 +1,6 @@
+//backend/app/src/routes/cardTypes.js
+
+
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 

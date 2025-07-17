@@ -1,4 +1,5 @@
-// src/api/appointment.js
+// frontend/app/src/api/appointment.js
+
 import request from './index.js';
 
 export const getAppointments = (params) => {

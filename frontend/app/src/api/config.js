@@ -1,3 +1,6 @@
+//frontend/app/src/api/config.js
+
+
 import request from './index.js';
 
 export const getSystemConfig = () => {

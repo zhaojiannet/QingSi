@@ -1,4 +1,6 @@
-// backend/src/routes/configs.js
+//backend/app/src/routes/configs.js
+
+
 import prisma from '../db/prisma.js';
 
 // 一个辅助函数，用于获取配置，如果不存在则创建默认值

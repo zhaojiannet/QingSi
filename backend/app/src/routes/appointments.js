@@ -1,3 +1,6 @@
+//backend/app/src/routes/appointments.js
+
+
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 

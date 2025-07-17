@@ -1,4 +1,6 @@
-// backend/src/routes/users.js
+// backend/app/src/routes/users.js
+
+
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
 

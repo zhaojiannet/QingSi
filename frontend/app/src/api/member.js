@@ -1,4 +1,4 @@
-// src/api/member.js
+// frontend/app/src/api/member.js
 
 import request from './index.js';
 

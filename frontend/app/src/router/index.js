@@ -1,4 +1,5 @@
-// frontend/src/router/index.js
+//frontend/app/src/router/index.js
+
 import { createRouter, createWebHistory } from 'vue-router';
 import NProgress from 'nprogress';
 import 'nprogress/nprogress.css';

@@ -1,4 +1,5 @@
-// src/api/report.js
+// frontend/app/src/api/report.js
+
 import request from './index.js';
 
 // 获取核心营业报表

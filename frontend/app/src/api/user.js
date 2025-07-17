@@ -1,4 +1,6 @@
-// src/api/user.js
+// frontend/app/src/api/user.js
+
+
 import request from './index.js';
 
 export const updateUserPassword = (data) => {

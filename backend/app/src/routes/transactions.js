@@ -1,4 +1,4 @@
-// backend/src/routes/transactions.js
+// backend/app/src/routes/transactions.js
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';

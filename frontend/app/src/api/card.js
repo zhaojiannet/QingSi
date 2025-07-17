@@ -1,4 +1,5 @@
-// src/api/card.js
+// frontend/app/src/api/card.js
+
 import request from './index.js';
 
 // 办卡并生成消费记录

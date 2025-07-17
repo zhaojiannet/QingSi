@@ -1,4 +1,6 @@
-// src/stores/user.js
+//frontend/app/src/stores/user.js
+
+
 import { defineStore } from 'pinia';
 import { login as loginApi } from '@/api/auth';
 

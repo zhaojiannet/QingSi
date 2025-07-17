@@ -1,4 +1,6 @@
-// backend/src/routes/cards.js
+//backend/app/src/routes/cards.js
+
+
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 

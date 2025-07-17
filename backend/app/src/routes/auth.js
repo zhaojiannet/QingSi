@@ -1,3 +1,6 @@
+//backend/app/src/routes/auth.js
+
+
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
 import svgCaptcha from 'svg-captcha'; // 引入 svg-captcha
