@@ -24,7 +24,7 @@ export default async function (fastify, opts) {
         return reply.code(400).send({ message: '新密码长度不能少于6位' });
     }
 
-    try {
+
       const user = await prisma.user.findUnique({ 
         where: { id: userId } 
       });
@@ -51,9 +51,6 @@ export default async function (fastify, opts) {
 
       return { message: '密码修改成功，请重新登录' };
 
-    } catch (error) {
-      request.log.error(error);
-      return reply.code(500).send({ message: '服务器内部错误，修改密码失败' });
-    }
+
   });
 }

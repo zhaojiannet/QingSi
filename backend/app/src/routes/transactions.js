@@ -25,7 +25,7 @@ export default async function (fastify, opts) {
       return reply.code(400).send({ message: '使用会员卡支付时，必须提供会员ID和卡ID' });
     }
 
-    try {
+
       const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } });
       if (services.length !== serviceIds.length) {
         return reply.code(404).send({ message: '一个或多个服务项目不存在' });
@@ -114,13 +114,7 @@ export default async function (fastify, opts) {
 
       return finalResult;
 
-    } catch (error) {
-      fastify.log.error(error);
-      if (error.code === 'P2025') {
-         return reply.code(404).send({ message: '关联的员工、会员或卡片不存在' });
-      }
-      return reply.code(500).send({ message: '创建消费记录失败' });
-    }
+
   });
 
   // --- 组合支付结算接口 ---
@@ -131,7 +125,7 @@ export default async function (fastify, opts) {
       return reply.code(400).send({ message: '缺少必要参数：会员、服务项目' });
     }
 
-    try {
+
       const memberCards = await prisma.card.findMany({
         where: {
           memberId: memberId,
@@ -226,13 +220,7 @@ export default async function (fastify, opts) {
 
       return finalResult;
 
-    } catch (error) {
-      fastify.log.error(error);
-      if (error.code === 'P2025') {
-         return reply.code(404).send({ message: '关联的员工或会员不存在' });
-      }
-      return reply.code(500).send({ message: '创建消费记录失败' });
-    }
+
   });
 
   // --- 组合支付“试算”接口 ---
@@ -301,7 +289,7 @@ export default async function (fastify, opts) {
 
   // --- 获取今日交易记录的接口 ---
   fastify.get('/today', async (request, reply) => {
-    try {
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
@@ -336,9 +324,6 @@ export default async function (fastify, opts) {
       }));
 
       return formattedTransactions;
-    } catch (error) {
-      fastify.log.error(error);
-      reply.code(500).send({ message: '获取今日交易记录失败' });
-    }
+
   });
 }

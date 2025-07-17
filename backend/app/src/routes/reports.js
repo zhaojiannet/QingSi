@@ -14,7 +14,7 @@ export default async function (fastify, opts) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999); // 包含当天
 
-    try {
+
       const transactions = await prisma.transaction.findMany({
         where: {
           transactionTime: { gte: start, lte: end },
@@ -42,15 +42,12 @@ export default async function (fastify, opts) {
       };
 
       return report;
-    } catch (error) {
-      fastify.log.error(error);
-      reply.code(500).send({ message: '获取营业报表失败' });
-    }
+
   });
 
   // 项目销售排行榜
   fastify.get('/service-ranking', async (request, reply) => {
-      try {
+
           const result = await prisma.transactionItem.groupBy({
               by: ['serviceId'],
               _sum: {
@@ -82,15 +79,12 @@ export default async function (fastify, opts) {
           }));
 
           return report;
-      } catch (error) {
-          fastify.log.error(error);
-          reply.code(500).send({ message: '获取项目销售排行失败' });
-      }
+
   });
 
   // 沉睡会员报表 (超过90天未消费)
   fastify.get('/sleeping-members', async (request, reply) => {
-    try {
+
       const ninetyDaysAgo = new Date();
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
@@ -114,9 +108,6 @@ export default async function (fastify, opts) {
         }
       });
       return sleepingMembers;
-    } catch (error) {
-        fastify.log.error(error);
-        reply.code(500).send({ message: '获取沉睡会员报表失败' });
-    }
+
   });
 }

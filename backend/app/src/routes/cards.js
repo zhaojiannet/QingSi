@@ -4,7 +4,6 @@ import { generateId } from '../utils/id.js';
 
 export default async function (fastify, opts) {
   fastify.post('/issue-with-transaction', async (request, reply) => {
-    try {
       // 这里的 request.user 只是用来验证操作员有权限，但我们不直接用它的ID
       if (!request.user || !request.user.id) {
         return reply.code(401).send({ message: '用户未认证或Token无效' });
@@ -59,12 +58,6 @@ export default async function (fastify, opts) {
 
       return result;
 
-    } catch (error) {
-      fastify.log.error(error);
-      if (error.code === 'P2025') {
-        return reply.code(404).send({ message: '关联的会员、卡类型或操作员工不存在' });
-      }
-      return reply.code(500).send({ message: '办卡失败，服务器内部错误' });
-    }
+
   });
 }

@@ -61,7 +61,6 @@ export default async function (fastify, opts) {
         where.status = status;
     }
 
-    try {
       const appointments = await prisma.appointment.findMany({
         where,
         include: {
@@ -72,10 +71,7 @@ export default async function (fastify, opts) {
         orderBy: { appointmentTime: 'asc' },
       });
       return appointments;
-    } catch (error) {
-      fastify.log.error(error);
-      reply.code(500).send({ message: '查询预约列表失败' });
-    }
+
   });
 
   // 更新预约状态 (保持不变)
@@ -87,18 +83,11 @@ export default async function (fastify, opts) {
           return reply.code(400).send({ message: '必须提供新的状态' });
       }
 
-      try {
           const updatedAppointment = await prisma.appointment.update({
               where: { id },
               data: { status },
           });
           return updatedAppointment;
-      } catch (error) {
-          fastify.log.error(error);
-          if (error.code === 'P2025') {
-              return reply.code(404).send({ message: '预约不存在' });
-          }
-          reply.code(500).send({ message: '更新预约状态失败' });
-      }
+
   });
 }
