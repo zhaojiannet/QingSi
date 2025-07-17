@@ -1,0 +1,220 @@
+// backend/app/prisma/schema.prisma (已修正 Enum 格式)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. 会员管理模块
+model Member {
+  id                String       @id
+  phone             String       @unique
+  name              String
+  gender            Gender?      @default(UNKNOWN)
+  birthday          DateTime?
+  registrationDate  DateTime     @default(now())
+  lastVisitDate     DateTime?
+  status            MemberStatus @default(ACTIVE)
+  notes             String?      @db.Text
+  
+  cards             Card[]
+  transactions      Transaction[]
+  appointments      Appointment[]
+
+  @@index([name])
+  @@index([status])
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  FROZEN
+  DELETED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+// 2. 会员卡管理模块
+model Card {
+  id            String     @id
+  memberId      String
+  cardTypeId    String
+  // --- 优化：Float -> Decimal ---
+  balance       Decimal    @default(0.0) @db.Decimal(10, 2)
+  issueDate     DateTime   @default(now())
+  expiryDate    DateTime?
+  status        CardStatus @default(ACTIVE)
+  
+  member        Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  cardType      CardType   @relation(fields: [cardTypeId], references: [id])
+  transactions  Transaction[]
+
+  @@index([memberId])
+  @@index([cardTypeId])
+  @@index([status])
+}
+
+enum CardStatus {
+  ACTIVE
+  DEPLETED
+  EXPIRED
+  FROZEN
+}
+
+model CardType {
+  id            String   @id
+  name          String   @unique
+  // --- 优化：Float -> Decimal ---
+  initialPrice  Decimal  @db.Decimal(10, 2)
+  discountRate  Decimal  @db.Decimal(4, 3) // 例如 0.850，精度更高
+  status        ServiceStatus @default(AVAILABLE)
+  
+  cards         Card[]
+
+  @@index([status])
+}
+
+// 3. 项目/服务管理模块
+model Service {
+  id              String         @id
+  name            String         @unique
+  // --- 优化：Float -> Decimal ---
+  standardPrice   Decimal        @db.Decimal(10, 2)
+  status          ServiceStatus  @default(AVAILABLE)
+
+  TransactionItem TransactionItem[]
+  Appointment     Appointment[]
+
+  @@index([status])
+}
+
+enum ServiceStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+// 4. 消费/收银模块
+model Transaction {
+  id                String          @id
+  memberId          String?
+  staffId           String?
+  // --- 优化：Float -> Decimal ---
+  totalAmount       Decimal         @db.Decimal(10, 2)
+  actualPaidAmount  Decimal         @db.Decimal(10, 2)
+  discountAmount    Decimal         @db.Decimal(10, 2)
+  paymentMethod     PaymentMethod
+  cardId            String?
+  transactionTime   DateTime        @default(now())
+  notes             String?
+  
+  member            Member?         @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  staff             Staff?          @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  cardUsed          Card?           @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  items             TransactionItem[]
+  appointment       Appointment?
+  
+  @@index([transactionTime])
+  @@index([memberId])
+  @@index([staffId])
+}
+
+enum PaymentMethod {
+  CASH
+  WECHAT_PAY
+  ALIPAY
+  CARD_SWIPE
+  MEMBER_CARD
+  OTHER
+}
+
+model TransactionItem {
+  id            String      @id
+  transactionId String
+  serviceId     String
+  // --- 优化：Float -> Decimal ---
+  price         Decimal     @db.Decimal(10, 2)
+  quantity      Int         @default(1)
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  service       Service     @relation(fields: [serviceId], references: [id])
+
+  @@index([transactionId])
+  @@index([serviceId])
+}
+
+
+// 5. 员工管理模块
+model Staff {
+  id               String        @id
+  name             String
+  position         String
+  phone            String?       @unique
+  hireDate         DateTime      @default(now())
+  status           StaffStatus   @default(ACTIVE)
+  countsCommission Boolean       @default(true)
+  
+  transactions     Transaction[]
+  appointments     Appointment[]
+
+  @@index([status])
+}
+
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// 6. 预约管理模块
+model Appointment {
+  id              String            @id
+  memberId        String?
+  customerName    String
+  customerPhone   String
+  appointmentTime DateTime
+  assignedStaffId String?
+  status          AppointmentStatus @default(PENDING)
+  notes           String?
+  
+  member          Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  staff           Staff?            @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  services        Service[]
+  transactionId   String?           @unique
+  transaction     Transaction?      @relation(fields: [transactionId], references: [id])
+
+  @@index([appointmentTime])
+  @@index([status])
+  @@index([memberId])
+  @@index([assignedStaffId])
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// --- 用户模型 ---
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  role      String   @default("staff")
+  createdAt DateTime @default(now())
+}
+
+
+// --- 系统配置模型 ---
+model SystemConfig {
+  id                  Int     @id @default(1)
+  enableLoginCaptcha  Boolean @default(true)
+}

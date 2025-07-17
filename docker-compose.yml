@@ -1,0 +1,46 @@
+services:
+  # 后端服务
+  backend:
+    build: ./backend
+    container_name: qingsi_backend
+    volumes:
+      - ./backend/app:/app
+      - no-cache:/app/node_modules
+      - no-cache:/app/.pnpm-store
+    ports:
+      - "3000:3000"
+      - "5555:5555"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    restart: unless-stopped
+    # command: tail -f /dev/null # <-- 换成这个命令，让容器一直挂起
+    command: sh -c "pnpm install && pnpm dev"
+    networks:
+      - docker-net # <-- 修改于此
+
+  # 前端服务
+  frontend:
+    build: ./frontend
+    container_name: qingsi_frontend
+    volumes:
+      - ./frontend/app:/app
+      - no-cache:/app/node_modules
+      - no-cache:/app/.pnpm-store
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+    # command: tail -f /dev/null # <-- 换成这个命令，让容器一直挂起
+    command: sh -c "pnpm install && pnpm dev"
+    networks:
+      - docker-net # <-- 修改于此
+
+# 定义要使用的网络
+networks:
+  docker-net:
+    # 关键：将此网络标记为“外部的”
+    # 这告诉 Docker Compose 不要尝试创建它，而是直接使用已经存在的同名网络
+    external: true
+
+# 定义服务所需的具名卷
+volumes:
+  no-cache:
