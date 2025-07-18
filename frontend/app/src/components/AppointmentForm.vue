@@ -59,7 +59,7 @@
           <el-option
             v-for="item in staffList"
             :key="item.id"
-            :label="item.name"
+            :label="`${item.name} (${item.position})`"
             :value="item.id"
           />
         </el-select>
