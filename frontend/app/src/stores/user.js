@@ -1,8 +1,9 @@
 // frontend/app/src/stores/user.js
 
 import { defineStore } from 'pinia';
-import { login as loginApi, logout as logoutApi } from '@/api/auth'; // 引入 logoutApi
+import { login as loginApi, logout as logoutApi } from '@/api/auth';
 import { jwtDecode } from 'jwt-decode';
+import { useSystemStore } from './system'; // 引入 system store
 
 function getInitialState() {
   const accessToken = localStorage.getItem('accessToken');
@@ -41,22 +42,25 @@ export const useUserStore = defineStore('user', {
 
         const decoded = jwtDecode(accessToken);
         this.userInfo = { id: decoded.id, username: decoded.username, role: decoded.role };
+        
+        // --- 核心修复：登录成功后，在这里获取预约数 ---
+        const systemStore = useSystemStore();
+        await systemStore.fetchTodayAppointmentCount();
+
       } catch (error) {
         return Promise.reject(error);
       }
     },
     
-    // 新增：用于设置和存储令牌
     setTokens(accessToken, refreshToken) {
       this.accessToken = accessToken;
       localStorage.setItem('accessToken', accessToken);
-      if (refreshToken) { // 刷新令牌是可选的，只有在登录时才更新
+      if (refreshToken) {
         this.refreshToken = refreshToken;
         localStorage.setItem('refreshToken', refreshToken);
       }
     },
 
-    // 新增：清理令牌
     clearTokensAndRedirect() {
       const refreshToken = this.refreshToken;
       
@@ -65,9 +69,7 @@ export const useUserStore = defineStore('user', {
       this.userInfo = null;
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
-      localStorage.removeItem('rememberedCredentials');
       
-      // 异步通知后端也销毁该 refresh token
       if (refreshToken) {
         logoutApi({ refreshToken }).catch(err => console.error("通知后端登出失败:", err));
       }
@@ -75,7 +77,6 @@ export const useUserStore = defineStore('user', {
       window.location.href = '/login';
     },
 
-    // 修改：logout 方法现在只调用清理函数
     logout() {
       this.clearTokensAndRedirect();
     },

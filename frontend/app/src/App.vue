@@ -1,5 +1,4 @@
 <template>
-  <!-- 核心改动1：用一个 v-if 判断，只有在非登录页才显示整个布局 -->
   <div v-if="!isLoginPage" class="app-wrapper">
     <!-- 统一的顶部导航栏 -->
     <el-header class="app-header">
@@ -19,8 +18,8 @@
               :to="item.index"
               class="nav-item"
               active-class="is-active"
+              @click="handleNavClick(item.index)"
             >
-              <!-- 核心修改：为“预约”菜单项包裹 el-badge -->
               <el-badge 
                 :value="systemStore.todayAppointmentCount" 
                 :hidden="systemStore.todayAppointmentCount === 0" 
@@ -32,15 +31,27 @@
                   <span>{{ item.title }}</span>
                 </div>
               </el-badge>
-              <!-- 其他菜单项正常显示 -->
+              <el-badge 
+                is-dot
+                :hidden="!showBirthdayBadge"
+                type="warning"
+                class="nav-badge"
+                v-else-if="item.index === '/reports'"
+              >
+                <div class="nav-item-content">
+                  <el-icon><component :is="item.icon" /></el-icon>
+                  <span>{{ item.title }}</span>
+                </div>
+              </el-badge>
               <div class="nav-item-content" v-else>
                 <el-icon><component :is="item.icon" /></el-icon>
                 <span>{{ item.title }}</span>
               </div>
             </router-link>
           </nav>
+
           <div v-if="userStore.isLoggedIn" class="user-profile">
-             <el-dropdown @command="handleCommand">
+             <el-dropdown @command="handleUserCommand" trigger="click">
               <span class="el-dropdown-link">
                 <el-avatar :icon="UserFilled" size="small" />
                 <span class="username">admin</span>
@@ -48,17 +59,32 @@
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                  <el-dropdown-item class="font-size-adjuster-item" :divided="true">
+                    <div class="font-size-adjuster-wrapper">
+                      <span class="adjuster-label">字体大小</span>
+                      <el-radio-group 
+                        :model-value="uiStore.fontSize"
+                        @update:model-value="handleFontCommand" 
+                        size="small"
+                      >
+                        <!-- 核心修复：将 label 改为 value -->
+                        <el-radio-button value="default">默认</el-radio-button>
+                        <el-radio-button value="medium">中</el-radio-button>
+                        <el-radio-button value="large">大</el-radio-button>
+                      </el-radio-group>
+                    </div>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="logout" :divided="true">退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
           </div>
         </div>
 
-        <!-- 移动端，只在顶部显示Logo和用户信息 -->
+        <!-- 移动端UI -->
          <div class="header-right mobile-only">
             <div v-if="userStore.isLoggedIn" class="user-profile">
-                <el-dropdown @command="handleCommand">
+                <el-dropdown @command="handleUserCommand">
                 <span class="el-dropdown-link">
                     <el-avatar :icon="UserFilled" size="small" />
                     <span class="username">admin</span>
@@ -71,7 +97,6 @@
                 </el-dropdown>
             </div>
         </div>
-
       </div>
     </el-header>
 
@@ -97,7 +122,6 @@
             class="nav-item"
             active-class="is-active"
           >
-            <!-- 核心修改：为移动端“预约”菜单项包裹 el-badge -->
             <el-badge 
               :value="systemStore.todayAppointmentCount" 
               :hidden="systemStore.todayAppointmentCount === 0" 
@@ -121,36 +145,51 @@
 </template>
 
 <script setup>
-import { shallowRef, computed, onMounted } from 'vue';
+import { shallowRef, computed, onMounted, watch, ref } from 'vue';
 import { useUserStore } from '@/stores/user';
 import { useSystemStore } from '@/stores/system';
-import { useRoute, onBeforeRouteUpdate } from 'vue-router';
-import { Tickets, User, Calendar, DataAnalysis, Tools, UserFilled, ArrowDown } from '@element-plus/icons-vue';
+import { useUIStore } from '@/stores/ui';
+import { useRoute } from 'vue-router';
+import { User, UserFilled, ArrowDown, Money, Scissor, PieChart, Operation } from '@element-plus/icons-vue';
 
 const userStore = useUserStore();
 const systemStore = useSystemStore();
+const uiStore = useUIStore();
 const route = useRoute();
 
+const showBirthdayBadge = ref(false);
 const isLoginPage = computed(() => route.name === 'login');
+
+const fetchAllReminders = () => {
+  systemStore.fetchTodayAppointmentCount();
+  systemStore.fetchUpcomingBirthdayCount();
+};
 
 onMounted(() => {
   if (userStore.isLoggedIn) {
-    systemStore.fetchTodayAppointmentCount();
+    fetchAllReminders();
   }
+  applyFontSize(uiStore.fontSize);
 });
 
-onBeforeRouteUpdate((to, from) => {
-  if (from.name === 'login' && to.name !== 'login') {
-    systemStore.fetchTodayAppointmentCount();
-  }
+watch(() => systemStore.upcomingBirthdayCount, (newCount) => {
+    if (newCount > 0) {
+        showBirthdayBadge.value = true;
+    }
+});
+
+watch(() => userStore.isLoggedIn, (isLoggedIn) => {
+    if (isLoggedIn) {
+        fetchAllReminders();
+    }
 });
 
 const menuItems = shallowRef([
-  { index: '/transactions', title: '收银', icon: Tickets },
+  { index: '/transactions', title: '收银', icon: Money },
   { index: '/members', title: '会员', icon: User },
-  { index: '/appointments', title: '预约', icon: Calendar },
-  { index: '/reports', title: '报表', icon: DataAnalysis, roles: ['ADMIN', 'MANAGER'] },
-  { index: '/settings', title: '设置', icon: Tools, roles: ['ADMIN'] },
+  { index: '/appointments', title: '预约', icon: Scissor },
+  { index: '/reports', title: '报表', icon: PieChart, roles: ['ADMIN', 'MANAGER'] },
+  { index: '/settings', title: '设置', icon: Operation, roles: ['ADMIN'] },
 ]);
 
 const filteredMenuItems = computed(() => {
@@ -163,11 +202,38 @@ const filteredMenuItems = computed(() => {
   });
 });
 
-const handleCommand = (command) => {
+const handleUserCommand = (command) => {
   if (command === 'logout') {
     userStore.logout();
   }
 };
+
+const handleNavClick = (path) => {
+    if (path === '/reports') {
+        showBirthdayBadge.value = false;
+    }
+};
+
+const fontSizeMap = {
+  default: { base: '15px', tag: '13px' },
+  medium:  { base: '16px', tag: '14px' },
+  large:   { base: '17px', tag: '15px' },
+};
+
+const handleFontCommand = (newSize) => {
+  uiStore.setFontSize(newSize);
+};
+
+const applyFontSize = (size) => {
+  const sizes = fontSizeMap[size] || fontSizeMap['default'];
+  const root = document.documentElement;
+  root.style.setProperty('--el-font-size-base', sizes.base);
+  root.style.setProperty('--dynamic-tag-font-size', sizes.tag);
+};
+
+watch(() => uiStore.fontSize, (newSize) => {
+  applyFontSize(newSize);
+});
 </script>
 
 <style scoped>
@@ -198,40 +264,44 @@ const handleCommand = (command) => {
 }
 .logo-container { display: flex; align-items: center; gap: 12px; }
 .logo-img { height: 40px; }
-.logo-text { font-size: 20px; font-weight: 600; white-space: nowrap; color: #25686c; }
+.logo-text { font-size: 22px; font-weight: 500; white-space: nowrap; color: #25686c; }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 25px;
   margin-left: auto; 
 }
 .custom-nav { display: flex; align-items: center; height: 100%; }
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 0 18px;
+  padding: 0 12px;
   height: 100%;
   color: #606266;
   text-decoration: none;
-  font-size: 15px;
+  font-size: 1rem;
   transition: all 0.2s ease;
   border-bottom: 3px solid transparent;
-  /* 为 badge 提供定位上下文 */
   position: relative; 
+  margin-right: 12px;
 }
-.nav-item .el-icon { margin-right: 6px; }
+.nav-item .el-icon {
+  font-size: 1.2em;
+  margin-right: 6px;
+}
 .nav-item:hover { color: #25686c; }
-.nav-item.is-active { color: #25686c; border-bottom-color: #25686c; font-weight: 600; }
+.nav-item.is-active { color: #25686c; border-bottom-color: #25686c; font-weight: 600; padding-bottom: 6px; }
 
 .el-dropdown-link {
   cursor: pointer;
   display: flex;
   align-items: center;
-  color: #303133;
+  gap: 8px;
+  color: #606266;
 }
 .username {
-  margin: 0 8px;
+  margin: 0 8px 0 0;
 }
 
 .app-main {
@@ -256,14 +326,10 @@ const handleCommand = (command) => {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-.mobile-nav {
-    display: none;
-}
-.mobile-only {
+.mobile-nav, .mobile-only {
     display: none;
 }
 
-/* 核心修改：新增 badge 样式 */
 .nav-item-content, .nav-item-content-mobile {
   display: flex;
   align-items: center;
@@ -274,19 +340,30 @@ const handleCommand = (command) => {
   width: 100%;
   height: 100%;
 }
-.nav-badge {
-  /* 确保 badge 填满整个 a 标签，使点击区域不变 */
+.nav-badge, .nav-badge-mobile {
   width: 100%;
   height: 100%;
+}
+.nav-badge {
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.nav-badge-mobile {
-  /* 移动端 badge 样式 */
-  width: 100%;
-  height: 100%;
+.font-size-adjuster-item {
+  height: auto !important;
+  background-color: transparent !important;
+  cursor: default !important;
+  padding: 8px 12px !important;
+}
+.font-size-adjuster-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.adjuster-label {
+  color: var(--el-text-color-regular);
 }
 
 @media (max-width: 767px) {
@@ -332,7 +409,7 @@ const handleCommand = (command) => {
 </style>
 
 <style>
-/* 全局样式重置 */
+/* 全局样式 */
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif; }
 
@@ -343,5 +420,21 @@ body { margin: 0; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hira
 
 #nprogress .peg {
   box-shadow: 0 0 10px #25686c, 0 0 5px #25686c !important;
+}
+
+.el-dropdown-menu .el-radio-group {
+  display: flex;
+  width: 100%;
+}
+.el-dropdown-menu .el-radio-button {
+  flex: 1;
+}
+.el-dropdown-menu .el-radio-button .el-radio-button__inner {
+  width: 100%;
+  padding: 6px;
+}
+
+body .el-tag {
+  font-size: var(--dynamic-tag-font-size, 12px) !important;
 }
 </style>

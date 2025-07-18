@@ -2,14 +2,14 @@
   <div class="page-content">
     <!-- 头部区域 -->
     <div class="page-header">
-      <h2 class="page-title">结算中心</h2>
+      <h2 class="page-title">收银 · 结算</h2>
     </div>
 
     <!-- 主体布局 -->
     <el-row :gutter="20">
       <!-- 左侧：开单区域 -->
       <el-col :lg="14" :md="12" :xs="24" class="left-panel">
-        <h3 class="panel-title">服务开单</h3>
+        <h3 class="panel-title">请选择消费项目</h3>
         <el-form ref="formRef" :model="form" label-width="100px" label-position="top">
           <el-form-item label="选择会员">
       <el-autocomplete
@@ -109,7 +109,7 @@
 
       <!-- 右侧：订单预览和结算 -->
       <el-col :lg="10" :md="12" :xs="24" class="right-panel">
-        <h3 class="panel-title-right">订单详情</h3>
+        <h3 class="panel-title-right">消费详情</h3>
         
         <div v-if="cartItems.length === 0" class="empty-cart">
           <el-empty description="请从左侧选择服务项目" />
@@ -132,7 +132,7 @@
             
             <div class="summary-item" v-if="displayDiscountAmount > 0">
               <span class="discount-label">
-                卡折扣
+                折扣
                 <span class="discount-detail" v-if="averageDiscountRateText">
                   ({{ averageDiscountRateText }})
                 </span>
@@ -146,14 +146,21 @@
             </div>
           </div>
 
-          <div v-if="form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode === 'auto' && paymentPlan.paymentDetails.length > 0" class="payment-plan-preview">
+          <!-- 核心修改1：支付方案预览UI更新 -->
+          <div v-if="form.paymentMethod === 'MEMBER_CARD' && paymentPlan.paymentDetails.length > 0" class="payment-plan-preview">
             <el-divider content-position="left">支付方案预览</el-divider>
-            <div v-for="(detail, index) in paymentPlan.paymentDetails" :key="index" class="plan-item">
-              <span>
-                <el-icon><CreditCard /></el-icon>
-                {{ detail.cardName }} ({{ (detail.discountRate * 10).toFixed(1) }}折)
-              </span>
-              <span class="plan-deduction">- ¥{{ displayDiscountAmount.minus(paymentPlan.paymentDetails.slice(0, index).reduce((sum, d) => sum.plus(d.discountAmount), new Decimal(0))).toFixed(2) }}</span>
+            <div v-for="(detail, index) in paymentPlan.paymentDetails" :key="index" class="plan-card-detail">
+              <div class="plan-card-header">
+                <span>
+                  <el-icon><CreditCard /></el-icon>
+                  {{ detail.cardName }} ({{ new Decimal(detail.discountRate).times(10).toFixed(1) }}折)
+                </span>
+              </div>
+              <div class="plan-card-body">
+                <span>原价: ¥{{ detail.originalAmountCovered.toFixed(2) }}</span>
+                <span>优惠: -¥{{ detail.discountAmount.toFixed(2) }}</span>
+                <span class="deduction">实扣: ¥{{ detail.deduction.toFixed(2) }}</span>
+              </div>
             </div>
           </div>
           
@@ -174,7 +181,7 @@
     <!-- 今日结算记录 -->
 <div class="today-records">
     <div class="page-header">
-      <h2 class="page-title">今日结算记录</h2>
+      <h2 class="page-title">消费记录</h2>
     </div>
     <div>
       <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
@@ -182,7 +189,6 @@
           <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
         </el-table-column>
         <el-table-column label="服务项目">
-          <!-- 核心修改：优先显示 summary -->
           <template #default="{ row }">
             {{ row.summary || row.items.map(item => item.service.name).join(', ') }}
           </template>
@@ -296,13 +302,10 @@ const totalAmount = computed(() => {
   );
 });
 
-// --- 核心修复点: 加固 availableCards 计算属性 ---
 const availableCards = computed(() => {
-  // 如果没有选择会员，或者会员对象上没有 cards 数组，直接返回空数组
   if (!selectedMember.value || !Array.isArray(selectedMember.value.cards)) {
     return [];
   }
-  // 确保过滤和排序逻辑在有 cards 数组的情况下执行
   return selectedMember.value.cards
     .filter(card => card.status === 'ACTIVE' && new Decimal(card.balance).gt(0))
     .sort((a, b) => {
@@ -315,14 +318,14 @@ const availableCards = computed(() => {
     });
 });
 
+// --- 核心修改2：paymentPlan 计算属性增强 ---
 const paymentPlan = computed(() => {
-  if (form.paymentMethod !== 'MEMBER_CARD' || cartItems.value.length === 0 || !selectedMember.value) {
-    return {
-      paymentDetails: [],
-      actualPaidAmount: totalAmount.value,
-      discountAmount: new Decimal(0),
-      isPayable: cartItems.value.length > 0,
-    };
+  if (cartItems.value.length === 0 || !selectedMember.value) {
+    return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
+  }
+  
+  if (form.paymentMethod !== 'MEMBER_CARD') {
+    return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
   }
 
   if (cardPaymentMode.value === 'manual') {
@@ -330,24 +333,27 @@ const paymentPlan = computed(() => {
     const card = availableCards.value.find(c => c.id === form.cardId);
     if (!card) return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
     
-    const actualPaid = totalAmount.value.times(card.cardType.discountRate);
-    if (new Decimal(card.balance).lessThan(actualPaid)) {
+    const deduction = totalAmount.value.times(card.cardType.discountRate);
+    if (new Decimal(card.balance).lessThan(deduction)) {
         return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: '余额不足' };
     }
     
-    const discount = totalAmount.value.minus(actualPaid);
+    const discountAmount = totalAmount.value.minus(deduction);
     return {
       paymentDetails: [{
         cardName: card.cardType.name,
-        discountRate: card.cardType.discountRate,
-        discountAmount: discount,
+        discountRate: new Decimal(card.cardType.discountRate),
+        originalAmountCovered: totalAmount.value,
+        deduction: deduction,
+        discountAmount: discountAmount,
       }],
-      actualPaidAmount: actualPaid,
-      discountAmount: discount,
+      actualPaidAmount: deduction,
+      discountAmount: discountAmount,
       isPayable: true,
     };
   }
 
+  // 自动模式
   let remainingAmount = totalAmount.value;
   let totalPaid = new Decimal(0);
   const paymentDetails = [];
@@ -358,21 +364,23 @@ const paymentPlan = computed(() => {
     const cardBalance = new Decimal(card.balance);
     const discountRate = new Decimal(card.cardType.discountRate);
     const maxOriginalAmount = cardBalance.div(discountRate);
-    const amountToCover = Decimal.min(remainingAmount, maxOriginalAmount);
-    const deduction = amountToCover.times(discountRate);
+    const originalAmountToCover = Decimal.min(remainingAmount, maxOriginalAmount);
+    const deduction = originalAmountToCover.times(discountRate);
 
     totalPaid = totalPaid.plus(deduction);
-    remainingAmount = remainingAmount.minus(amountToCover);
+    remainingAmount = remainingAmount.minus(originalAmountToCover);
 
     paymentDetails.push({
       cardName: card.cardType.name,
-      discountRate: card.cardType.discountRate,
-      discountAmount: amountToCover.minus(deduction),
+      discountRate: discountRate,
+      originalAmountCovered: originalAmountToCover,
+      deduction: deduction,
+      discountAmount: originalAmountToCover.minus(deduction),
     });
   }
 
   if (!remainingAmount.isZero()) {
-    return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: `所有会员卡余额不足，仍有 ¥${remainingAmount.toFixed(2)} 未支付` };
+    return { paymentDetails, actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: `所有会员卡余额不足，仍有 ¥${remainingAmount.toFixed(2)} 未支付` };
   }
   
   return {
@@ -383,6 +391,7 @@ const paymentPlan = computed(() => {
   };
 });
 
+
 const displayActualPaidAmount = computed(() => new Decimal(paymentPlan.value.actualPaidAmount || 0));
 const displayDiscountAmount = computed(() => new Decimal(paymentPlan.value.discountAmount || 0));
 
@@ -390,15 +399,15 @@ const averageDiscountRateText = computed(() => {
   if (displayDiscountAmount.value.isZero()) return '';
   if (cardPaymentMode.value === 'manual' && paymentPlan.value.paymentDetails.length > 0) {
       const detail = paymentPlan.value.paymentDetails[0];
-      return `${detail.cardName} - ${(detail.discountRate * 10).toFixed(1)}折`;
+      return `${detail.cardName} - ${detail.discountRate.times(10).toFixed(1)}折`;
   }
   if (cardPaymentMode.value === 'auto' && totalAmount.value.gt(0)) {
     if (paymentPlan.value.paymentDetails.length === 1) {
       const detail = paymentPlan.value.paymentDetails[0];
-      return `${detail.cardName} - ${(detail.discountRate * 10).toFixed(1)}折`;
+      return `${detail.cardName} - ${detail.discountRate.times(10).toFixed(1)}折`;
     }
     const rate = displayActualPaidAmount.value.div(totalAmount.value);
-    return `综合 ${(rate.times(10)).toFixed(1)}折`;
+    return `综合 ${rate.times(10).toFixed(1)}折`;
   }
   return '';
 });
@@ -501,22 +510,34 @@ const handleCheckout = async () => {
   margin-top: 20px;
   font-size: 14px;
 }
-.plan-item {
+/* 核心修改3：支付方案预览新样式 */
+.plan-card-detail {
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+.plan-card-header {
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  color: #303133;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #e4e7ed;
+  margin-bottom: 8px;
+}
+.plan-card-header .el-icon {
+  margin-right: 6px;
+  color: var(--el-color-primary);
+}
+.plan-card-body {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 8px 5px;
-  color: #606266;
-  border-bottom: 1px dashed #e4e7ed;
+  color: #909399;
+  font-size: 13px;
 }
-.plan-item:last-child {
-  border-bottom: none;
-}
-.plan-item .el-icon {
-  vertical-align: middle;
-  margin-right: 5px;
-}
-.plan-deduction {
+.plan-card-body .deduction {
   font-weight: 500;
   color: #f56c6c;
 }

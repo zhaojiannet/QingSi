@@ -10,7 +10,17 @@
     <div class="filter-container">
       <el-form :inline="true" :model="searchParams">
         <el-form-item>
-          <el-input v-model="searchParams.search" placeholder="输入姓名或手机号实时筛选" clearable style="width: 240px;" />
+  <el-input
+    v-model="searchParams.search"
+    placeholder="输入会员姓名或手机号进行搜索"
+    clearable
+    size="large"
+    style="width: 360px;"
+  >
+    <template #prefix>
+      <el-icon><Search /></el-icon>
+    </template>
+  </el-input>
         </el-form-item>
       </el-form>
     </div>
@@ -93,7 +103,7 @@
 import { ref, reactive, onMounted, watch, computed } from 'vue';
 import { useBreakpoints } from '@vueuse/core';
 import { getMembers } from '@/api/member.js';
-import { Plus, Edit } from '@element-plus/icons-vue'; 
+import { Plus, Edit, Search } from '@element-plus/icons-vue'; 
 import MemberForm from '@/components/MemberForm.vue';
 import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
 // 优化点5: 引入通用格式化函数
