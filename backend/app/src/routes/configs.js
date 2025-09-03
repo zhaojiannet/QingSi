@@ -17,14 +17,16 @@ async function getOrCreateConfig() {
 }
 
 export default async function (fastify, opts) {
-  // 获取所有系统配置
+  // 获取所有系统配置 - 公开访问（登录页需要）
   fastify.get('/', async (request, reply) => {
     const config = await getOrCreateConfig();
     return config;
   });
 
-  // 更新配置
-  fastify.patch('/', async (request, reply) => {
+  // 更新配置 - 需要管理员权限
+  fastify.patch('/', {
+    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')]
+  }, async (request, reply) => {
     const { enableLoginCaptcha } = request.body;
     
     const updatedConfig = await prisma.systemConfig.update({

@@ -16,7 +16,7 @@ export const useSystemStore = defineStore('system', {
         const { count } = await getTodayAppointmentCount();
         this.todayAppointmentCount = count;
       } catch (error) {
-        console.error('获取今日预约数量失败:', error);
+        // Error fetching appointment count - handled silently
         this.todayAppointmentCount = 0;
       }
     },
@@ -28,7 +28,7 @@ export const useSystemStore = defineStore('system', {
         const reminders = await getBirthdayReminders();
         this.upcomingBirthdayCount = reminders.length;
       } catch (error) {
-        console.error('获取生日提醒数量失败:', error);
+        // Error fetching birthday count - handled silently
         this.upcomingBirthdayCount = 0;
       }
     },

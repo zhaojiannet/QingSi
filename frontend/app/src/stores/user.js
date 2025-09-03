@@ -20,7 +20,7 @@ function getInitialState() {
         };
       }
     } catch (error) {
-      console.error('解析旧的 Access Token 失败:', error);
+      // Token parsing failed - handled silently
     }
   }
   return { accessToken: null, refreshToken: null, userInfo: null };
@@ -71,7 +71,7 @@ export const useUserStore = defineStore('user', {
       localStorage.removeItem('refreshToken');
       
       if (refreshToken) {
-        logoutApi({ refreshToken }).catch(err => console.error("通知后端登出失败:", err));
+        logoutApi({ refreshToken }).catch(() => { /* Logout notification failed - handled silently */ });
       }
 
       window.location.href = '/login';

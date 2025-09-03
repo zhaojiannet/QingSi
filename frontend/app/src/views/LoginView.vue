@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useUserStore } from '@/stores/user';
 import { User, Lock } from '@element-plus/icons-vue';
@@ -72,23 +72,32 @@ const form = reactive({
   captchaText: '',
 });
 
-const rules = {
+const rules = computed(() => ({
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  captchaText: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
-};
+  captchaText: loginConfig.showCaptcha 
+    ? [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+    : []
+}));
 
 const refreshCaptcha = () => {
   captchaImage.value = `/api/auth/captcha?t=${new Date().getTime()}`;
 };
 
 onMounted(async () => {
-  refreshCaptcha();
+  // 先尝试获取系统配置
   try {
     const config = await getSystemConfig();
     loginConfig.showCaptcha = config.enableLoginCaptcha;
+    console.log('验证码配置:', loginConfig.showCaptcha ? '开启' : '关闭');
   } catch(e) {
-    console.error("获取系统配置失败", e);
+    console.log('获取系统配置失败，使用默认配置');
+    loginConfig.showCaptcha = true; // 默认显示验证码
+  }
+  
+  // 如果需要显示验证码，则加载验证码图片
+  if (loginConfig.showCaptcha) {
+    refreshCaptcha();
   }
 });
 

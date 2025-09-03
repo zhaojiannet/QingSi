@@ -1,17 +1,22 @@
-import { PrismaClient } from '@prisma/client';
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const username = 'admin';
-  // 请务必在生产环境中使用更复杂的密码，或从环境变量读取
-  const plainPassword = 'password'; 
+  // 从环境变量读取，如果没有则使用默认值
+  const username = process.env.ADMIN_USERNAME || 'username';
+  const plainPassword = process.env.ADMIN_PASSWORD || 'password';
+  
+  if (!process.env.ADMIN_PASSWORD) {
+    process.stdout.write('Warning: Using default admin password. Please set ADMIN_PASSWORD environment variable in production!\n');
+  }
 
   const existingUser = await prisma.user.findUnique({ where: { username } });
 
   if (existingUser) {
-    console.log('Admin user "admin" already exists.');
+    process.stdout.write('Admin user already exists.\n');
     return;
   }
 
@@ -20,18 +25,18 @@ async function main() {
     data: {
       username,
       password: hashedPassword,
-      role: 'admin',
+      role: 'ADMIN',
     },
   });
 
-  console.log('Admin user created successfully!');
-  console.log(`Username: ${username}`);
-  console.log(`Password: ${plainPassword} (This is your password, keep it safe)`);
+  process.stdout.write('Admin user created successfully!\n');
+  process.stdout.write(`Username: ${username}\n`);
+  process.stdout.write(`Password: ${plainPassword} (This is your password, keep it safe)\n`);
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);
   })
   .finally(async () => {

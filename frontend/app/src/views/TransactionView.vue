@@ -48,12 +48,14 @@
           
           <el-form-item label="选择服务">
             <el-select
-              v-model="form.serviceIds"
+              v-model="uniqueServiceIds"
               multiple
               filterable
               placeholder="请选择服务项目"
               size="large"
               style="width: 100%"
+              @change="handleServiceChange"
+              class="service-select-with-badge"
             >
               <el-option
                 v-for="item in serviceList"
@@ -118,6 +120,29 @@
         <div v-else>
           <el-table :data="cartItems" style="width: 100%">
             <el-table-column prop="name" label="项目名称" />
+            <el-table-column label="数量" width="120" align="center">
+              <template #default="{ row }">
+                <div class="quantity-control">
+                  <el-button
+                    size="small"
+                    :icon="Minus"
+                    circle
+                    @click="decreaseQuantity(row.id)"
+                    :disabled="row.quantity <= 1"
+                  />
+                  <span 
+                    class="quantity-number"
+                    :class="{ 'quantity-highlight': row.quantity > 1 }"
+                  >{{ row.quantity }}</span>
+                  <el-button
+                    size="small"
+                    :icon="Plus"
+                    circle
+                    @click="increaseQuantity(row.id)"
+                  />
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="standardPrice" label="价格" width="80" align="right">
                <template #default="{ row }">¥{{ new Decimal(row.standardPrice).toFixed(2) }}</template>
             </el-table-column>
@@ -208,13 +233,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue';
 import { useTransactionStore } from '@/stores/transaction';
 import { getMembers } from '@/api/member.js';
 import { getServiceList } from '@/api/service.js';
 import { getStaffList } from '@/api/staff.js';
 import { createTransaction, getTodayTransactions, createComboCheckout } from '@/api/transaction.js';
-import { CreditCard } from '@element-plus/icons-vue';
+import { CreditCard, Plus, Minus } from '@element-plus/icons-vue';
 import Decimal from 'decimal.js';
 import { ElMessage } from 'element-plus';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
@@ -258,7 +283,10 @@ onMounted(() => {
     }
   }
 
-  fetchServices();
+  fetchServices().then(() => {
+    // 等待服务列表加载完成后更新角标
+    updateTagBadges();
+  });
   fetchStaff();
   fetchTodayTransactions();
 });
@@ -293,13 +321,150 @@ const queryMembersAsync = async (queryString, cb) => {
 
 // --- 计算属性 ---
 const commissionableStaff = computed(() => allStaff.value.filter(staff => staff.countsCommission));
-const cartItems = computed(() => serviceList.value.filter(s => form.serviceIds.includes(s.id)));
+// 服务数量映射
+const serviceQuantities = reactive({});
+
+const cartItems = computed(() => {
+  const uniqueServiceIds = [...new Set(form.serviceIds)];
+  return uniqueServiceIds.map(serviceId => {
+    const service = serviceList.value.find(s => s.id === serviceId);
+    if (service) {
+      const quantity = serviceQuantities[serviceId] || 1;
+      return {
+        ...service,
+        quantity: quantity
+      };
+    }
+    return null;
+  }).filter(Boolean);
+});
+
+// 初始化服务数量
+const initializeServiceQuantity = (serviceId) => {
+  if (!serviceQuantities[serviceId]) {
+    serviceQuantities[serviceId] = 1;
+  }
+};
+
+// 增加服务数量
+const increaseQuantity = (serviceId) => {
+  if (!serviceQuantities[serviceId]) {
+    serviceQuantities[serviceId] = 1;
+  }
+  serviceQuantities[serviceId]++;
+  updateServiceIds();
+};
+
+// 减少服务数量
+const decreaseQuantity = (serviceId) => {
+  if (serviceQuantities[serviceId] && serviceQuantities[serviceId] > 1) {
+    serviceQuantities[serviceId]--;
+    updateServiceIds();
+  }
+};
+
+// 根据数量更新serviceIds数组（用于后端接口）
+const updateServiceIds = () => {
+  form.serviceIds = [];
+  Object.keys(serviceQuantities).forEach(serviceId => {
+    const quantity = serviceQuantities[serviceId] || 0;
+    for (let i = 0; i < quantity; i++) {
+      form.serviceIds.push(serviceId);
+    }
+  });
+};
+
+// 处理下拉框选择变化
+const handleServiceChange = (newValue) => {
+  // 移除未选中的服务
+  Object.keys(serviceQuantities).forEach(serviceId => {
+    if (!newValue.includes(serviceId)) {
+      delete serviceQuantities[serviceId];
+    }
+  });
+  
+  // 初始化新选中的服务
+  newValue.forEach(serviceId => {
+    initializeServiceQuantity(serviceId);
+  });
+  
+  updateServiceIds();
+};
+
+// 当前选中的唯一服务ID列表
+const uniqueServiceIds = computed(() => {
+  return [...new Set(form.serviceIds)];
+});
+
+// 获取服务名称
+const getServiceName = (serviceId) => {
+  const service = serviceList.value.find(s => s.id === serviceId);
+  return service ? service.name : '';
+};
+
+// 获取服务数量
+const getServiceQuantity = (serviceId) => {
+  return serviceQuantities[serviceId] || 1;
+};
+
+// 更新标签角标
+const updateTagBadges = async () => {
+  await nextTick();
+  
+  // 移除已有的角标
+  document.querySelectorAll('.service-quantity-badge').forEach(badge => {
+    badge.remove();
+  });
+  
+  // 为每个选中的标签添加角标
+  const selectedItems = document.querySelectorAll('.service-select-with-badge .el-select__selected-item');
+  
+  selectedItems.forEach((item, index) => {
+    const serviceId = uniqueServiceIds.value[index];
+    if (serviceId) {
+      const quantity = getServiceQuantity(serviceId);
+      if (quantity > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'service-quantity-badge';
+        badge.textContent = quantity;
+        badge.style.cssText = `
+          position: absolute;
+          top: -8px;
+          right: -8px;
+          background-color: #f56c6c;
+          color: white;
+          border-radius: 10px;
+          padding: 0 6px;
+          font-size: 12px;
+          line-height: 20px;
+          height: 20px;
+          min-width: 20px;
+          text-align: center;
+          z-index: 10;
+          font-weight: bold;
+        `;
+        item.style.position = 'relative';
+        item.appendChild(badge);
+      }
+    }
+  });
+};
+
+// 监听数量变化
+watch(serviceQuantities, () => {
+  updateTagBadges();
+}, { deep: true });
+
+// 监听服务选择变化
+watch(uniqueServiceIds, () => {
+  updateTagBadges();
+});
 
 const totalAmount = computed(() => {
-  return cartItems.value.reduce(
-    (sum, item) => sum.plus(new Decimal(item.standardPrice)), 
-    new Decimal(0)
-  );
+  return form.serviceIds.reduce((sum, serviceId) => {
+    const service = serviceList.value.find(s => s.id === serviceId);
+    return service ? sum.plus(new Decimal(service.standardPrice)) : sum;
+  }, new Decimal(0));
 });
 
 const availableCards = computed(() => {
@@ -443,6 +608,12 @@ const resetForm = async () => {
   form.serviceIds = [];
   form.notes = '';
   form.appointmentId = null;
+  
+  // 清空服务数量映射
+  Object.keys(serviceQuantities).forEach(key => {
+    delete serviceQuantities[key];
+  });
+  
   await fetchTodayTransactions();
 };
 
@@ -540,5 +711,43 @@ const handleCheckout = async () => {
 .plan-card-body .deduction {
   font-weight: 500;
   color: #f56c6c;
+}
+
+/* 数量控制样式 */
+.quantity-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.quantity-number {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 500;
+  color: #303133;
+}
+
+.quantity-highlight {
+  color: #f56c6c !important;
+  font-weight: bold;
+}
+
+/* 数量角标样式 */
+.service-quantity-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background-color: #f56c6c;
+  color: white;
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 20px;
+  height: 20px;
+  min-width: 20px;
+  text-align: center;
+  z-index: 10;
+  font-weight: bold;
 }
 </style>

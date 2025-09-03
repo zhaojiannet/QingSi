@@ -155,7 +155,7 @@ const onDialogOpen = async () => {
     allStaff.value = staffData;
   } catch (error) {
     apiError.value = true;
-    console.error('获取会员详情数据失败:', error);
+    // Error fetching member details - handled silently
   } finally {
     loading.value = false;
   }

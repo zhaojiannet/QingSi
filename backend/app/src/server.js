@@ -26,22 +26,85 @@ import cardRoutes from './routes/cards.js';
 
 const fastify = Fastify({ logger: true });
 
-// 插件注册
-fastify.register(fastifyCors, { origin: true, credentials: true });
-fastify.register(fastifyHelmet);
+// CORS配置 - 基于环境变量
+const corsOrigins = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:4173'];
+
+fastify.register(fastifyCors, { 
+  origin: (origin, cb) => {
+    // 开发环境允许无origin的请求（如Postman）
+    if (process.env.NODE_ENV === 'development' && !origin) {
+      cb(null, true);
+      return;
+    }
+    
+    // 检查origin是否在白名单中
+    if (!origin || corsOrigins.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+});
+
+// 安全头配置
+fastify.register(fastifyHelmet, {
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'https:', 'data:'],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // 根据需要调整
+});
 fastify.register(fastifyCookie);
 
+// Session配置 - 基于环境的安全设置
+const isProduction = process.env.NODE_ENV === 'production';
+const secureCookie = process.env.SECURE_COOKIE === 'true' || isProduction;
+
 fastify.register(fastifySession, {
-  secret: process.env.SESSION_SECRET || 'PLACEHOLDER_SESSION_SECRET',
+  secret: process.env.SESSION_SECRET,
+  cookieName: 'sessionId',
   cookie: { 
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax'
-  } 
+    secure: secureCookie, // 生产环境必须为true
+    httpOnly: true, // 防止XSS攻击
+    sameSite: isProduction ? 'strict' : 'lax', // CSRF防护
+    maxAge: 1000 * 60 * 60 * 24, // 24小时
+    domain: process.env.COOKIE_DOMAIN || undefined, // 可选：设置cookie域
+    path: '/'
+  },
+  saveUninitialized: false,
+  rolling: true // 活动时自动续期
 });
 
 fastify.register(fastifyJwt, { secret: process.env.JWT_SECRET });
-fastify.register(fastifyRateLimit, { max: 100, timeWindow: '1 minute' });
+
+// 全局速率限制 - 更保守的设置
+fastify.register(fastifyRateLimit, { 
+  global: true,
+  max: 50, // 降低到50次/分钟
+  timeWindow: '1 minute',
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
+  addHeaders: {
+    'x-ratelimit-limit': true,
+    'x-ratelimit-remaining': true,
+    'x-ratelimit-reset': true,
+    'retry-after': true
+  }
+});
 
 // --- 认证装饰器 ---
 fastify.decorate("authenticate", async function(request, reply) {
@@ -99,9 +162,18 @@ const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRol
 const adminOnlyAccess = { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] };
 
 // --- 路由注册 (最终版RBAC权限) ---
+// 认证路由 - 更严格的速率限制
 fastify.register(authRoutes, { 
   prefix: '/api/auth',
-  config: { rateLimit: { max: 10, timeWindow: '1 minute' } }
+  config: { 
+    rateLimit: { 
+      max: 5, // 降低到5次/分钟
+      timeWindow: '1 minute',
+      keyGenerator: (request) => {
+        return request.ip; // 基于IP的限制
+      }
+    } 
+  }
 });
 
 // 基础访问权限
@@ -118,17 +190,39 @@ fastify.register(cardTypeRoutes, { prefix: '/api/card-types' });
 // 高级权限
 fastify.register(reportRoutes, { prefix: '/api/reports', ...managerAndAdminAccess });
 fastify.register(serviceRoutes, { prefix: '/api/services', ...adminOnlyAccess });
-fastify.register(configRoutes, { prefix: '/api/configs', ...adminOnlyAccess });
+
+// 配置路由 - GET 公开访问（登录页需要），PATCH 需要管理员权限（在路由内部控制）
+fastify.register(configRoutes, { prefix: '/api/configs' });
 
 // 启动服务
 const start = async () => {
   try {
+    // 环境变量检查
+    console.log('=== 环境变量检查 ===');
+    console.log('NODE_ENV:', process.env.NODE_ENV || 'undefined');
+    console.log('DATABASE_URL:', process.env.DATABASE_URL ? '已设置' : '未设置');
+    console.log('JWT_SECRET:', process.env.JWT_SECRET ? '已设置' : '未设置');
+    console.log('SESSION_SECRET:', process.env.SESSION_SECRET ? '已设置' : '未设置');
+    
     if (!process.env.JWT_SECRET) {
       fastify.log.error('致命错误: 环境变量 JWT_SECRET 未定义!');
       process.exit(1);
     }
+    if (!process.env.SESSION_SECRET) {
+      fastify.log.error('致命错误: 环境变量 SESSION_SECRET 未定义!');
+      process.exit(1);
+    }
+    if (!process.env.DATABASE_URL) {
+      fastify.log.error('致命错误: 环境变量 DATABASE_URL 未定义!');
+      process.exit(1);
+    }
+    
+    console.log('=== 启动 Fastify 服务器 ===');
     await fastify.listen({ port: 3000, host: '0.0.0.0' });
+    console.log('✅ 服务器启动成功: http://0.0.0.0:3000');
   } catch (err) {
+    console.error('❌ 服务器启动失败:');
+    console.error(err);
     fastify.log.error(err);
     process.exit(1);
   }

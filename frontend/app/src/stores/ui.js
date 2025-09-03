@@ -16,7 +16,7 @@ export const useUIStore = defineStore('ui', {
       // 校验传入的值
       const validSizes = ['default', 'medium', 'large'];
       if (!validSizes.includes(newSize)) {
-        console.warn('无效的字体大小:', newSize);
+        // Invalid font size - ignore
         return;
       }
       

@@ -1,14 +1,16 @@
 //backend/app/src/routes/members.js
 
-
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
-import Decimal from 'decimal.js'; // 确保引入 Decimal.js
+import Decimal from 'decimal.js';
+import { schemas, createValidationHook, isValidId } from '../utils/validation.js';
+import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
 
 export default async function (fastify, opts) {
-  // 创建新会员
-  fastify.post('/', async (request, reply) => {
-
+  // 创建新会员 - 添加输入验证
+  fastify.post('/', {
+    preValidation: createValidationHook(schemas.member.create)
+  }, async (request, reply) => {
       const { name, phone, gender, birthday, notes } = request.body;
       const newMember = await prisma.member.create({
         data: {
@@ -20,17 +22,28 @@ export default async function (fastify, opts) {
           notes,
         },
       });
+      
+      // 清除会员列表缓存
+      invalidateCache('members:list');
+      
       return newMember;
 
   });
 
 
-  // 获取会员列表
+  // 获取会员列表 - 添加缓存
   fastify.get('/', async (request, reply) => {
     const { page = 1, limit = 10, search = '', includeCards = 'false' } = request.query;
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
+    
+    // 尝试从缓存获取
+    const cacheKey = cacheKeys.memberList(pageNum, limitNum, search);
+    const cached = cache.get(cacheKey);
+    if (cached && includeCards === 'false') {
+      return cached;
+    }
 
 
       const where = search ? {
@@ -42,41 +55,65 @@ export default async function (fastify, opts) {
 
       const shouldIncludeCards = includeCards === 'true';
 
-      const [membersData, total] = await prisma.$transaction([
-        prisma.member.findMany({
-          where,
-          skip,
-          take: limitNum,
-          orderBy: { registrationDate: 'desc' },
-          include: {
-            // --- 核心修改：统一 include 逻辑 ---
-            cards: {
-              where: { status: 'ACTIVE' },
-              include: {
-                // 只有当需要完整卡片信息时，才进一步 include cardType
-                cardType: shouldIncludeCards,
+      let membersData, total;
+      
+      if (shouldIncludeCards) {
+        // 当需要完整卡片信息时，一次性查询所有数据
+        [membersData, total] = await prisma.$transaction([
+          prisma.member.findMany({
+            where,
+            skip,
+            take: limitNum,
+            orderBy: { registrationDate: 'desc' },
+            include: {
+              cards: {
+                where: { status: 'ACTIVE' },
+                select: {
+                  id: true,
+                  balance: true,
+                  cardType: {
+                    select: {
+                      id: true,
+                      name: true,
+                      discountRate: true
+                    }
+                  }
+                }
               }
             }
-          }
-        }),
-        prisma.member.count({ where }),
-      ]);
+          }),
+          prisma.member.count({ where }),
+        ]);
+      } else {
+        // 当只需要卡片数量时，使用更高效的查询
+        [membersData, total] = await prisma.$transaction([
+          prisma.member.findMany({
+            where,
+            skip,
+            take: limitNum,
+            orderBy: { registrationDate: 'desc' },
+            include: {
+              _count: {
+                select: { cards: { where: { status: 'ACTIVE' } } }
+              }
+            }
+          }),
+          prisma.member.count({ where }),
+        ]);
+      }
       
-      // --- 核心修改：处理返回数据 ---
+      // --- 优化：处理返回数据 ---
       const members = membersData.map(member => {
         if (shouldIncludeCards) {
-          // 如果需要完整卡片，则计算总余额
+          // 计算总余额
           const totalBalance = member.cards.reduce(
               (sum, card) => sum.plus(new Decimal(card.balance)), 
               new Decimal(0)
           );
           return { ...member, totalBalance: totalBalance.toNumber() };
         } else {
-          // 如果不需要完整卡片，则构造 _count
-          const cardsCount = member.cards.length;
-          // 删除 cards 数组，避免传输不必要的数据
-          delete member.cards;
-          return { ...member, _count: { cards: cardsCount } };
+          // 直接使用 _count 结果，无需额外处理
+          return member;
         }
       });
 

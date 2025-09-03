@@ -26,7 +26,10 @@ model Member {
   appointments      Appointment[]
 
   @@index([name])
+  @@index([phone])
   @@index([status])
+  @@index([registrationDate])
+  @@index([birthday])
 }
 
 enum MemberStatus {
@@ -58,6 +61,9 @@ model Card {
   @@index([memberId])
   @@index([cardTypeId])
   @@index([status])
+  @@index([issueDate])
+  @@index([memberId, status])
+  @@index([balance])
 }
 
 enum CardStatus {
@@ -122,6 +128,10 @@ model Transaction {
   @@index([transactionTime])
   @@index([memberId])
   @@index([staffId])
+  @@index([paymentMethod])
+  @@index([cardId])
+  @@index([transactionTime, memberId])
+  @@index([transactionTime, paymentMethod])
 }
 
 
@@ -164,6 +174,8 @@ model Staff {
   appointments     Appointment[]
 
   @@index([status])
+  @@index([hireDate])
+  @@index([countsCommission])
 }
 
 enum StaffStatus {
@@ -192,6 +204,9 @@ model Appointment {
   @@index([status])
   @@index([memberId])
   @@index([assignedStaffId])
+  @@index([customerPhone])
+  @@index([appointmentTime, status])
+  @@index([appointmentTime, assignedStaffId])
 }
 
 enum AppointmentStatus {

@@ -16,7 +16,7 @@
     clearable
     size="large"
     style="width: 360px;"
-  >
+    @input="handleSearchDebounced"
     <template #prefix>
       <el-icon><Search /></el-icon>
     </template>
@@ -110,6 +110,8 @@ import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 // 优化点4: 引入统一时区处理函数
 import { formatInAppTimeZone } from '@/utils/date.js';
+// 性能优化工具
+import { debounce } from '@/utils/performance.js';
 
 // --- 响应式状态 ---
 const members = ref([]);
@@ -131,7 +133,7 @@ const fetchMembers = async () => {
     members.value = res.data;
     total.value = res.total;
   } catch(error) {
-    console.error("获取会员列表失败:", error);
+    // Error fetching members - handled silently
     members.value = [];
     total.value = 0;
   } finally {
@@ -143,14 +145,11 @@ onMounted(() => {
   fetchMembers();
 });
 
-let debounceTimer = null;
-watch(() => searchParams.search, () => {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    searchParams.page = 1;
-    fetchMembers();
-  }, 500);
-});
+// 使用防抖优化搜索
+const handleSearchDebounced = debounce(() => {
+  searchParams.page = 1;
+  fetchMembers();
+}, 500);
 
 // --- 事件处理 ---
 const handleSizeChange = (val) => {
