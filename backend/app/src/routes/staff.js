@@ -8,7 +8,7 @@ export default async function (fastify, opts) {
 
   // 创建新员工
   fastify.post('/', managerAndAdminAccess, async (request, reply) => {
-    let { name, position, phone, status, countsCommission } = request.body;
+    let { name, position, phone, status, countsCommission, sortOrder } = request.body;
     if (!name || !position) {
       return reply.code(400).send({ message: '缺少必要参数：姓名、职位' });
     }
@@ -26,12 +26,13 @@ export default async function (fastify, opts) {
         phone, // 使用预处理后的 phone 值
         status: status || 'ACTIVE',
         countsCommission: countsCommission !== undefined ? countsCommission : true,
+        sortOrder: sortOrder || 99,
       },
     });
     return newStaff;
   });
 
-  // 获取所有员工列表 (保持不变)
+  // 获取所有员工列表
   fastify.get('/', { onRequest: [fastify.authenticate] }, async (request, reply) => {
     const { status } = request.query;
     const where = {};
@@ -40,7 +41,10 @@ export default async function (fastify, opts) {
     }
     const staffList = await prisma.staff.findMany({
       where,
-      orderBy: { hireDate: 'desc' },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { hireDate: 'desc' }
+      ],
     });
     return staffList;
   });
@@ -48,7 +52,7 @@ export default async function (fastify, opts) {
   // 更新员工信息
   fastify.put('/:id', managerAndAdminAccess, async (request, reply) => {
     const { id } = request.params;
-    let { name, position, phone, countsCommission, status } = request.body;
+    let { name, position, phone, countsCommission, status, sortOrder } = request.body;
     const dataToUpdate = {};
 
     if (name !== undefined) dataToUpdate.name = name;
@@ -59,6 +63,7 @@ export default async function (fastify, opts) {
     }
     if (countsCommission !== undefined) dataToUpdate.countsCommission = countsCommission;
     if (status !== undefined) dataToUpdate.status = status;
+    if (sortOrder !== undefined) dataToUpdate.sortOrder = sortOrder;
     
     const updatedStaff = await prisma.staff.update({
       where: { id },

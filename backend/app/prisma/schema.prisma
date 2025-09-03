@@ -91,12 +91,14 @@ model Service {
   name            String         @unique
   standardPrice   Decimal        @db.Decimal(10, 2)
   status          ServiceStatus  @default(AVAILABLE)
+  sortOrder       Int            @default(99)
 
   TransactionItem TransactionItem[]
   // --- 核心修复点: 为关联字段添加名称 'appointments' ---
   appointments    Appointment[]
 
   @@index([status])
+  @@index([sortOrder])
 }
 
 enum ServiceStatus {
@@ -168,6 +170,7 @@ model Staff {
   hireDate         DateTime      @default(now())
   status           StaffStatus   @default(ACTIVE)
   countsCommission Boolean       @default(true)
+  sortOrder        Int           @default(99)
   
   user             User?
   transactions     Transaction[]
@@ -176,6 +179,7 @@ model Staff {
   @@index([status])
   @@index([hireDate])
   @@index([countsCommission])
+  @@index([sortOrder])
 }
 
 enum StaffStatus {

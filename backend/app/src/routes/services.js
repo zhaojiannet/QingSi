@@ -8,13 +8,14 @@ export default async function (fastify, opts) {
 
   // 创建新服务项目
   fastify.post('/', adminOnlyAccess, async (request, reply) => {
-    const { name, standardPrice, status } = request.body;
+    const { name, standardPrice, status, sortOrder } = request.body;
     const newService = await prisma.service.create({
       data: {
         id: generateId(),
         name,
         standardPrice,
         status,
+        sortOrder: sortOrder || 99,
       },
     });
     return newService;
@@ -29,7 +30,10 @@ export default async function (fastify, opts) {
     }
     const services = await prisma.service.findMany({
       where,
-      orderBy: { name: 'asc' },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { name: 'asc' }
+      ],
     });
     return services;
   });
@@ -37,13 +41,14 @@ export default async function (fastify, opts) {
   // 更新服务项目信息
   fastify.put('/:id', adminOnlyAccess, async (request, reply) => {
     const { id } = request.params;
-    const { name, standardPrice, status } = request.body;
+    const { name, standardPrice, status, sortOrder } = request.body;
     const updatedService = await prisma.service.update({
       where: { id },
       data: {
         name,
         standardPrice,
         status,
+        sortOrder: sortOrder !== undefined ? sortOrder : 99,
       },
     });
     return updatedService;
