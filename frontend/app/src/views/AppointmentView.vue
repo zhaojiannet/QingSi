@@ -21,9 +21,9 @@
         </el-form-item>
         <el-form-item>
           <el-radio-group v-model="quickDate" @change="handleQuickDateChange">
-            <el-radio-button label="today">今日</el-radio-button>
-            <el-radio-button label="this_week">本周</el-radio-button>
-            <el-radio-button label="this_month">本月</el-radio-button>
+            <el-radio-button label="today">当日</el-radio-button>
+            <el-radio-button label="this_week">当周</el-radio-button>
+            <el-radio-button label="this_month">当月</el-radio-button>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -184,7 +184,7 @@ const handleAdd = () => {
 
 const handleFormSuccess = () => {
   fetchAppointments();
-  // 核心修改：在表单成功后，刷新今日预约数
+  // 核心修改：在表单成功后，刷新当日预约数
   systemStore.fetchTodayAppointmentCount();
 };
 
@@ -193,7 +193,7 @@ const handleStatusCommand = async (command, id) => {
     await updateAppointmentStatus(id, command);
     ElMessage.success('状态更新成功');
     fetchAppointments(); 
-    // 核心修改：在状态改变后，也刷新今日预约数
+    // 核心修改：在状态改变后，也刷新当日预约数
     systemStore.fetchTodayAppointmentCount();
   } catch {
     // api/index.js 已处理

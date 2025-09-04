@@ -1,6 +1,6 @@
 <template>
   <div class="config-manager-container" v-loading="loading">
-    <el-form label-width="150px" style="max-width: 500px">
+    <el-form label-width="150px" style="max-width: 500px" class="no-wrap-labels">
       <el-form-item label="开启登录验证码">
         <el-switch 
           v-model="config.enableLoginCaptcha"
@@ -46,5 +46,9 @@ const handleConfigChange = async () => {
 <style scoped>
 .config-manager-container {
   padding-top: 20px;
+}
+
+.no-wrap-labels :deep(.el-form-item__label) {
+  white-space: nowrap;
 }
 </style>

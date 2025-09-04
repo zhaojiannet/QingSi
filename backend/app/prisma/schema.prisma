@@ -1,5 +1,3 @@
-// backend/app/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,21 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 1. 会员管理模块
 model Member {
-  id                String       @id
-  phone             String       @unique
-  name              String
-  gender            Gender?      @default(UNKNOWN)
-  birthday          DateTime?
-  registrationDate  DateTime     @default(now())
-  lastVisitDate     DateTime?
-  status            MemberStatus @default(ACTIVE)
-  notes             String?      @db.Text
-  
-  cards             Card[]
-  transactions      Transaction[]
-  appointments      Appointment[]
+  id               String        @id
+  phone            String        @unique
+  name             String
+  gender           Gender?       @default(UNKNOWN)
+  birthday         DateTime?
+  registrationDate DateTime      @default(now())
+  lastVisitDate    DateTime?
+  status           MemberStatus  @default(ACTIVE)
+  notes            String?       @db.Text
+  appointments     Appointment[]
+  cards            Card[]
+  transactions     Transaction[]
 
   @@index([name])
   @@index([phone])
@@ -32,31 +28,17 @@ model Member {
   @@index([birthday])
 }
 
-enum MemberStatus {
-  ACTIVE    // 对应业务术语: 正常
-  INACTIVE  // 对应业务术语: 冻结
-  DELETED   // 对应业务术语: 注销账户
-}
-
-enum Gender {
-  MALE
-  FEMALE
-  UNKNOWN
-}
-
-// 2. 会员卡管理模块
 model Card {
-  id            String     @id
-  memberId      String
-  cardTypeId    String
-  balance       Decimal    @default(0.0) @db.Decimal(10, 2)
-  issueDate     DateTime   @default(now())
-  expiryDate    DateTime?
-  status        CardStatus @default(ACTIVE)
-  
-  member        Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  cardType      CardType   @relation(fields: [cardTypeId], references: [id])
-  transactions  Transaction[]
+  id           String        @id
+  memberId     String
+  cardTypeId   String
+  balance      Decimal       @default(0.00) @db.Decimal(10, 2)
+  issueDate    DateTime      @default(now())
+  expiryDate   DateTime?
+  status       CardStatus    @default(ACTIVE)
+  cardType     CardType      @relation(fields: [cardTypeId], references: [id])
+  member       Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
 
   @@index([memberId])
   @@index([cardTypeId])
@@ -66,67 +48,50 @@ model Card {
   @@index([balance])
 }
 
-enum CardStatus {
-  ACTIVE
-  DEPLETED
-  EXPIRED
-  FROZEN
-}
-
 model CardType {
-  id            String   @id
-  name          String   @unique
-  initialPrice  Decimal  @db.Decimal(10, 2)
-  discountRate  Decimal  @db.Decimal(4, 3) 
-  status        ServiceStatus @default(AVAILABLE)
-  
-  cards         Card[]
+  id           String        @id
+  name         String        @unique
+  initialPrice Decimal       @db.Decimal(10, 2)
+  discountRate Decimal       @db.Decimal(4, 3)
+  status       ServiceStatus @default(AVAILABLE)
+  cards        Card[]
 
   @@index([status])
 }
 
-// 3. 项目/服务管理模块
 model Service {
-  id              String         @id
-  name            String         @unique
-  standardPrice   Decimal        @db.Decimal(10, 2)
-  status          ServiceStatus  @default(AVAILABLE)
-  sortOrder       Int            @default(99)
-
+  id              String            @id
+  name            String            @unique
+  standardPrice   Decimal           @db.Decimal(10, 2)
+  status          ServiceStatus     @default(AVAILABLE)
+  sortOrder       Int               @default(99)
+  noDiscount      Boolean           @default(false)
   TransactionItem TransactionItem[]
-  // --- 核心修复点: 为关联字段添加名称 'appointments' ---
-  appointments    Appointment[]
+  appointments    Appointment[]     @relation("AppointmentToService")
 
   @@index([status])
   @@index([sortOrder])
+  @@index([noDiscount])
 }
 
-enum ServiceStatus {
-  AVAILABLE
-  UNAVAILABLE
-}
-
-// 4. 消费/收银模块
 model Transaction {
-  id                String          @id
-  memberId          String?
-  staffId           String?
-  // --- 核心修改：新增 summary 字段 ---
-  summary           String?         // 用于记录交易摘要，如“办理【xxx卡】”或“项目消费”
-  totalAmount       Decimal         @db.Decimal(10, 2)
-  actualPaidAmount  Decimal         @db.Decimal(10, 2)
-  discountAmount    Decimal         @db.Decimal(10, 2)
-  paymentMethod     PaymentMethod
-  cardId            String?
-  transactionTime   DateTime        @default(now())
-  notes             String?
-  
-  member            Member?         @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  staff             Staff?          @relation(fields: [staffId], references: [id], onDelete: SetNull)
-  cardUsed          Card?           @relation(fields: [cardId], references: [id], onDelete: SetNull)
-  items             TransactionItem[]
-  appointment       Appointment?
-  
+  id               String            @id
+  memberId         String?
+  staffId          String?
+  summary          String?
+  totalAmount      Decimal           @db.Decimal(10, 2)
+  actualPaidAmount Decimal           @db.Decimal(10, 2)
+  discountAmount   Decimal           @db.Decimal(10, 2)
+  paymentMethod    PaymentMethod
+  cardId           String?
+  transactionTime  DateTime          @default(now())
+  notes            String?
+  appointment      Appointment?
+  cardUsed         Card?             @relation(fields: [cardId], references: [id])
+  member           Member?           @relation(fields: [memberId], references: [id])
+  staff            Staff?            @relation(fields: [staffId], references: [id])
+  items            TransactionItem[]
+
   @@index([transactionTime])
   @@index([memberId])
   @@index([staffId])
@@ -136,32 +101,19 @@ model Transaction {
   @@index([transactionTime, paymentMethod])
 }
 
-
-enum PaymentMethod {
-  CASH
-  WECHAT_PAY
-  ALIPAY
-  CARD_SWIPE
-  MEMBER_CARD
-  OTHER
-}
-
 model TransactionItem {
   id            String      @id
   transactionId String
   serviceId     String
   price         Decimal     @db.Decimal(10, 2)
   quantity      Int         @default(1)
-
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   service       Service     @relation(fields: [serviceId], references: [id])
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([transactionId])
   @@index([serviceId])
 }
 
-
-// 5. 员工管理模块
 model Staff {
   id               String        @id
   name             String
@@ -171,10 +123,9 @@ model Staff {
   status           StaffStatus   @default(ACTIVE)
   countsCommission Boolean       @default(true)
   sortOrder        Int           @default(99)
-  
-  user             User?
-  transactions     Transaction[]
   appointments     Appointment[]
+  transactions     Transaction[]
+  user             User?
 
   @@index([status])
   @@index([hireDate])
@@ -182,12 +133,6 @@ model Staff {
   @@index([sortOrder])
 }
 
-enum StaffStatus {
-  ACTIVE
-  INACTIVE
-}
-
-// 6. 预约管理模块
 model Appointment {
   id              String            @id
   memberId        String?
@@ -197,12 +142,11 @@ model Appointment {
   assignedStaffId String?
   status          AppointmentStatus @default(PENDING)
   notes           String?
-  
-  member          Member?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  staff           Staff?            @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
-  services        Service[]
   transactionId   String?           @unique
+  staff           Staff?            @relation(fields: [assignedStaffId], references: [id])
+  member          Member?           @relation(fields: [memberId], references: [id])
   transaction     Transaction?      @relation(fields: [transactionId], references: [id])
+  services        Service[]         @relation("AppointmentToService")
 
   @@index([appointmentTime])
   @@index([status])
@@ -213,6 +157,72 @@ model Appointment {
   @@index([appointmentTime, assignedStaffId])
 }
 
+model User {
+  id            String         @id @default(cuid())
+  username      String         @unique
+  password      String
+  role          Role           @default(STYLIST)
+  createdAt     DateTime       @default(now())
+  staffId       String?        @unique
+  refreshTokens RefreshToken[]
+  staff         Staff?         @relation(fields: [staffId], references: [id])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SystemConfig {
+  id                 Int     @id @default(1)
+  enableLoginCaptcha Boolean @default(true)
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+enum CardStatus {
+  ACTIVE
+  DEPLETED
+  EXPIRED
+  FROZEN
+}
+
+enum ServiceStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+enum PaymentMethod {
+  CASH
+  WECHAT_PAY
+  ALIPAY
+  DOUYIN
+  MEITUAN
+  CARD_SWIPE
+  MEMBER_CARD
+  OTHER
+}
+
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum AppointmentStatus {
   PENDING
   CONFIRMED
@@ -221,38 +231,9 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
-model User {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  role      Role     @default(STYLIST)
-  createdAt DateTime @default(now())
-  
-  staffId   String?  @unique
-  staff     Staff?   @relation(fields: [staffId], references: [id])
-
-  refreshTokens RefreshToken[]
-}
-
 enum Role {
   ADMIN
   MANAGER
   STYLIST
   ASSISTANT
-}
-
-model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  expiresAt DateTime
-  userId    String
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model SystemConfig {
-  id                  Int     @id @default(1)
-  enableLoginCaptcha  Boolean @default(true)
 }

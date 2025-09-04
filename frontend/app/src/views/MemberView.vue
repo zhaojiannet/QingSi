@@ -17,6 +17,7 @@
     size="large"
     style="width: 360px;"
     @input="handleSearchDebounced"
+  >
     <template #prefix>
       <el-icon><Search /></el-icon>
     </template>
@@ -63,8 +64,13 @@
         </el-table-column>
         <el-table-column prop="registrationDate" label="注册日期" width="180">
           <template #default="{ row }">
-            <!-- 优化点4: 使用统一时区处理函数 -->
-            {{ formatInAppTimeZone(row.registrationDate) }}
+            <el-tooltip
+              :content="formatFullDateTimeInAppTimeZone(row.registrationDate)"
+              placement="top"
+              effect="dark"
+            >
+              {{ formatShortDateInAppTimeZone(row.registrationDate) }}
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column prop="notes" label="备注" />
@@ -109,7 +115,7 @@ import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
 // 优化点5: 引入通用格式化函数
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 // 优化点4: 引入统一时区处理函数
-import { formatInAppTimeZone } from '@/utils/date.js';
+import { formatInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 // 性能优化工具
 import { debounce } from '@/utils/performance.js';
 

@@ -6,6 +6,12 @@
 <el-table :data="staffList" stripe v-loading="loading">
 <el-table-column prop="name" label="姓名" width="150" />
 <el-table-column prop="position" label="职位" width="150" />
+<el-table-column prop="sortOrder" label="排序" width="80" align="center">
+  <template #default="{ row }">
+    <el-tag v-if="row.sortOrder === 0" type="warning" size="small">默认</el-tag>
+    <span v-else>{{ row.sortOrder }}</span>
+  </template>
+</el-table-column>
 <el-table-column prop="phone" label="联系电话" width="180" />
 <el-table-column label="是否计提" width="100" align="center">
 <template #default="{ row }">
@@ -34,7 +40,7 @@
 </el-table>
 <!-- 新增/编辑表单弹窗 -->
 <el-dialog v-model="dialogVisible" :title="form.id ? '编辑员工' : '新增员工'" width="500px">
-  <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+  <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="no-wrap-labels">
     <el-form-item label="员工姓名" prop="name">
       <el-input v-model="form.name" />
     </el-form-item>
@@ -43,6 +49,18 @@
     </el-form-item>
     <el-form-item label="联系电话" prop="phone">
       <el-input v-model="form.phone" />
+    </el-form-item>
+    <el-form-item label="排序" prop="sortOrder">
+      <el-input-number 
+        v-model="form.sortOrder" 
+        :min="0" 
+        :step="1" 
+        placeholder="数字越小排序越靠前"
+      />
+      <div class="form-tip">
+        数字越小排序越靠前，按从小到大排序。<br>
+        <el-text type="warning">设为0的员工在收银页面为默认选择</el-text>
+      </div>
     </el-form-item>
     <el-form-item label="是否计提" prop="countsCommission">
       <el-switch v-model="form.countsCommission" />
@@ -96,6 +114,7 @@ id: null,
 name: '',
 position: '发型师',
 phone: '',
+sortOrder: 99,
 countsCommission: true,
 status: 'ACTIVE',
 });
@@ -124,7 +143,11 @@ dialogVisible.value = true;
 };
 
 const handleEdit = (row) => {
-Object.assign(form, row);
+const editData = { 
+  ...row, 
+  sortOrder: row.sortOrder || 99
+};
+Object.assign(form, editData);
 // 核心修改：记录打开弹窗时的状态
 initialStatus.value = row.status;
 dialogVisible.value = true;
@@ -172,4 +195,16 @@ margin-bottom: 20px;
   align-items: center;
   width: 100%;
 }
+
+.form-tip {
+  color: #909399;
+  margin-top: 4px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.no-wrap-labels :deep(.el-form-item__label) {
+  white-space: nowrap;
+}
+
 </style>

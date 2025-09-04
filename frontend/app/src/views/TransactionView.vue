@@ -58,7 +58,7 @@
               class="service-select-with-badge"
             >
               <el-option
-                v-for="item in serviceList"
+                v-for="item in sortedServiceList"
                 :key="item.id"
                 :label="`${item.name} (¥${item.standardPrice})`"
                 :value="item.id"
@@ -80,6 +80,8 @@
               <el-radio-button value="CASH">现金</el-radio-button>
               <el-radio-button value="WECHAT_PAY">微信</el-radio-button>
               <el-radio-button value="ALIPAY">支付宝</el-radio-button>
+              <el-radio-button value="DOUYIN">抖音</el-radio-button>
+              <el-radio-button value="MEITUAN">美团</el-radio-button>
               <el-radio-button value="MEMBER_CARD" :disabled="!form.memberId">会员卡</el-radio-button>
             </el-radio-group>
           </el-form-item>
@@ -96,7 +98,7 @@
               <el-option
                 v-for="card in availableCards"
                 :key="card.id"
-                :label="`${card.cardType.name} (余额: ¥${new Decimal(card.balance).toFixed(2)})`"
+                :label="`${card.cardType.name} (余额: ¥${new Decimal(card.balance).toFixed(2)}, ${Math.round(card.cardType.discountRate * 10)}折)`"
                 :value="card.id"
               />
             </el-select>
@@ -119,7 +121,21 @@
 
         <div v-else>
           <el-table :data="cartItems" style="width: 100%">
-            <el-table-column prop="name" label="项目名称" />
+            <el-table-column label="项目名称" min-width="180">
+              <template #default="{ row }">
+                <div class="service-item">
+                  <span class="service-name">{{ row.name }}</span>
+                  <div class="service-discount-info" v-if="form.paymentMethod === 'MEMBER_CARD' && selectedMember">
+                    <el-tag v-if="row.noDiscount" type="danger" size="small" class="discount-tag">
+                      <el-icon><Warning /></el-icon> 无折扣 ¥{{ new Decimal(row.standardPrice).toFixed(2) }}
+                    </el-tag>
+                    <el-tag v-else type="success" size="small" class="discount-tag">
+                      {{ getServiceDiscountText(row) }}
+                    </el-tag>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column label="数量" width="120" align="center">
               <template #default="{ row }">
                 <div class="quantity-control">
@@ -156,18 +172,27 @@
             </div>
             
             <div class="summary-item" v-if="displayDiscountAmount > 0">
-              <span class="discount-label">
-                折扣
-                <span class="discount-detail" v-if="averageDiscountRateText">
-                  ({{ averageDiscountRateText }})
-                </span>
-              </span>
+              <span class="discount-label">总优惠:</span>
               <span class="discount-text">- ¥{{ displayDiscountAmount.toFixed(2) }}</span>
             </div>
             
             <div class="summary-item total">
               <span>实付金额:</span>
-              <span class="total-price">¥{{ displayActualPaidAmount.toFixed(2) }}</span>
+              <div class="total-price-display">
+                <span class="total-price">¥{{ displayActualPaidAmount.toFixed(2) }}</span>
+                <div class="price-adjustment-controls">
+                  <el-button 
+                    text
+                    size="small" 
+                    type="warning"
+                    @click="openPriceAdjustmentDialog"
+                    class="adjustment-button"
+                  >
+                    价格调整
+                    <el-icon style="margin-left: 4px;"><Edit /></el-icon>
+                  </el-button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -203,32 +228,160 @@
       </el-col>
     </el-row>
     
-    <!-- 今日结算记录 -->
+    <!-- 当日结算记录 -->
 <div class="today-records">
     <div class="page-header">
       <h2 class="page-title">消费记录</h2>
     </div>
     <div>
       <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
-        <el-table-column prop="member.name" label="姓名">
+        <el-table-column prop="member.name" label="姓名" width="100">
           <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
         </el-table-column>
-        <el-table-column label="服务项目">
+        
+        <el-table-column label="会员卡" width="120">
           <template #default="{ row }">
-            {{ row.summary || row.items.map(item => item.service.name).join(', ') }}
+            <el-tag v-if="row.member && row.cardUsed" type="primary" size="small">
+              {{ row.cardUsed.cardType?.name || '会员卡' }}
+            </el-tag>
+            <span v-else>-</span>
           </template>
         </el-table-column>
-         <el-table-column prop="actualPaidAmount" label="实付金额" align="right">
+        
+        <el-table-column label="服务项目">
+          <template #default="{ row }">
+            {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="数量" width="60" align="center">
+          <template #default="{ row }">
+            <span v-if="row.items && row.items.length > 0">
+              {{ row.items.reduce((sum, item) => sum + (item.quantity || 1), 0) }}
+            </span>
+            <span v-else>1</span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="应付金额" width="90" align="right">
+          <template #default="{ row }">¥{{ row.totalAmount }}</template>
+        </el-table-column>
+        
+        <el-table-column label="折扣" width="180" align="left">
+          <template #default="{ row }">
+            <div v-if="row.manualAdjustment">
+              <el-tag type="warning" size="small">{{ getAdjustmentText(row) }}</el-tag>
+              <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
+                {{ getAdjustmentReason(row) }}
+              </div>
+            </div>
+            <div v-else-if="row.member && row.cardUsed && parseFloat(row.discountAmount) > 0">
+              <el-tag type="primary" size="small">
+                {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
+              </el-tag>
+            </div>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="实付金额" width="90" align="right">
           <template #default="{ row }">
             <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="transactionTime" label="时间" width="180" align="center">
-          <template #default="{ row }">{{ formatInAppTimeZone(row.transactionTime) }}</template>
+        
+        <el-table-column prop="transactionTime" label="时间" width="150" align="center">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="formatFullDateTimeInAppTimeZone(row.transactionTime)"
+              placement="top"
+              effect="dark"
+            >
+              {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+            </el-tooltip>
+          </template>
         </el-table-column>
       </el-table>
     </div>
 </div>
+
+    <!-- 价格调整对话框 -->
+    <el-dialog 
+      v-model="priceAdjustmentDialog.visible"
+      title="价格调整"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="priceAdjustmentDialog" label-width="100px">
+        <el-form-item label="原实付金额">
+          <el-input :value="`¥${displayActualPaidAmount.toFixed(2)}`" readonly />
+        </el-form-item>
+        <el-form-item label="调整后金额" required>
+          <el-input-number 
+            v-model="priceAdjustmentDialog.newAmount"
+            :precision="2"
+            :min="0"
+            :max="99999"
+            size="large"
+            style="width: 100%;"
+            placeholder="请输入调整后的金额"
+          />
+        </el-form-item>
+        <el-form-item label="差额">
+          <el-input :value="adjustmentDifferenceText" readonly />
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <el-button @click="priceAdjustmentDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="confirmPriceAdjustment">确认调整</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 价格调整确认对话框 -->
+    <el-dialog 
+      v-model="priceConfirmDialog.visible"
+      title="确认价格调整"
+      width="450px"
+      :close-on-click-modal="false"
+    >
+      <div class="price-confirm-content">
+        <el-alert type="warning" :closable="false" style="margin-bottom: 20px;">
+          <template #title>
+            <div>请确认价格调整信息：</div>
+            <div style="margin-top: 10px;">
+              原金额：¥{{ displayActualPaidAmount.toFixed(2) }} → 
+              调整后：¥{{ priceConfirmDialog.newAmount?.toFixed(2) }}
+            </div>
+            <div style="color: #E6A23C; font-weight: bold;">
+              {{ adjustmentDifferenceText }}
+            </div>
+          </template>
+        </el-alert>
+        
+        <el-form :model="priceConfirmDialog" label-width="100px">
+          <el-form-item label="调整原因" required>
+            <el-input 
+              v-model="priceConfirmDialog.reason"
+              type="textarea"
+              :rows="3"
+              placeholder="请输入价格调整的原因（必填）"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+      
+      <template #footer>
+        <el-button @click="priceConfirmDialog.visible = false">取消</el-button>
+        <el-button 
+          type="primary" 
+          @click="applyPriceAdjustment"
+          :disabled="!priceConfirmDialog.reason?.trim()"
+        >
+          确认调整
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -239,11 +392,11 @@ import { getMembers } from '@/api/member.js';
 import { getServiceList } from '@/api/service.js';
 import { getStaffList } from '@/api/staff.js';
 import { createTransaction, getTodayTransactions, createComboCheckout } from '@/api/transaction.js';
-import { CreditCard, Plus, Minus } from '@element-plus/icons-vue';
+import { CreditCard, Plus, Minus, Edit } from '@element-plus/icons-vue';
 import Decimal from 'decimal.js';
 import { ElMessage } from 'element-plus';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
-import { formatInAppTimeZone } from '@/utils/date.js';
+import { formatInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 
 // --- 状态定义 ---
 const formRef = ref(null);
@@ -255,6 +408,26 @@ const isSubmitting = ref(false);
 const todayTransactions = ref([]);
 const cardPaymentMode = ref('auto');
 const transactionStore = useTransactionStore();
+
+// 价格调整对话框状态
+const priceAdjustmentDialog = reactive({
+  visible: false,
+  newAmount: null
+});
+
+// 价格调整确认对话框状态
+const priceConfirmDialog = reactive({
+  visible: false,
+  newAmount: null,
+  reason: ''
+});
+
+// 手动价格调整状态
+const manualPriceAdjustment = reactive({
+  isActive: false,
+  adjustedAmount: null,
+  reason: ''
+});
 
 // --- 表单数据 ---
 const getInitialForm = () => ({
@@ -284,10 +457,26 @@ onMounted(() => {
   }
 
   fetchServices().then(() => {
+    // 设置默认选中排序为0的服务
+    if (!appointmentData && form.serviceIds.length === 0) {
+      const defaultService = serviceList.value.find(service => service.sortOrder === 0 && service.status === 'AVAILABLE');
+      if (defaultService) {
+        form.serviceIds = [defaultService.id];
+        initializeServiceQuantity(defaultService.id);
+      }
+    }
     // 等待服务列表加载完成后更新角标
     updateTagBadges();
   });
-  fetchStaff();
+  fetchStaff().then(() => {
+    // 设置默认选中排序为0的员工
+    if (!appointmentData && !form.staffId) {
+      const defaultStaff = allStaff.value.find(staff => staff.sortOrder === 0 && staff.countsCommission);
+      if (defaultStaff) {
+        form.staffId = defaultStaff.id;
+      }
+    }
+  });
   fetchTodayTransactions();
 });
 
@@ -297,6 +486,7 @@ const fetchServices = async () => {
 };
 const fetchStaff = async () => {
   allStaff.value = await getStaffList({ status: 'ACTIVE' });
+  return allStaff.value;
 };
 const fetchTodayTransactions = async () => { 
   try {
@@ -306,10 +496,12 @@ const fetchTodayTransactions = async () => {
       items: tx.items.map(item => ({
         ...item,
         price: item.price !== null ? item.price : (item.service?.standardPrice || 0)
-      }))
+      })),
+      // 检测是否为手动调整：notes包含"价格调整："
+      manualAdjustment: tx.notes && tx.notes.includes('价格调整：')
     }));
   } catch(error) {
-    console.error("获取今日流水失败:", error);
+    console.error("获取当日流水失败:", error);
     todayTransactions.value = [];
   }
 };
@@ -320,7 +512,19 @@ const queryMembersAsync = async (queryString, cb) => {
 };
 
 // --- 计算属性 ---
-const commissionableStaff = computed(() => allStaff.value.filter(staff => staff.countsCommission));
+const commissionableStaff = computed(() => 
+  allStaff.value
+    .filter(staff => staff.countsCommission)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+);
+
+// 排序后的服务列表
+const sortedServiceList = computed(() => {
+  return [...serviceList.value].sort((a, b) => {
+    // 按sortOrder从小到大排序
+    return a.sortOrder - b.sortOrder;
+  });
+});
 // 服务数量映射
 const serviceQuantities = reactive({});
 
@@ -467,6 +671,22 @@ const totalAmount = computed(() => {
   }, new Decimal(0));
 });
 
+// 计算可折扣金额（排除无折扣服务）
+const discountableAmount = computed(() => {
+  return form.serviceIds.reduce((sum, serviceId) => {
+    const service = serviceList.value.find(s => s.id === serviceId);
+    return (service && !service.noDiscount) ? sum.plus(new Decimal(service.standardPrice)) : sum;
+  }, new Decimal(0));
+});
+
+// 计算无折扣金额
+const noDiscountAmount = computed(() => {
+  return form.serviceIds.reduce((sum, serviceId) => {
+    const service = serviceList.value.find(s => s.id === serviceId);
+    return (service && service.noDiscount) ? sum.plus(new Decimal(service.standardPrice)) : sum;
+  }, new Decimal(0));
+});
+
 const availableCards = computed(() => {
   if (!selectedMember.value || !Array.isArray(selectedMember.value.cards)) {
     return [];
@@ -498,54 +718,80 @@ const paymentPlan = computed(() => {
     const card = availableCards.value.find(c => c.id === form.cardId);
     if (!card) return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
     
-    const deduction = totalAmount.value.times(card.cardType.discountRate);
-    if (new Decimal(card.balance).lessThan(deduction)) {
+    // 只对可折扣的服务应用折扣，无折扣服务保持原价
+    const discountableDeduction = discountableAmount.value.times(card.cardType.discountRate);
+    const totalDeduction = discountableDeduction.plus(noDiscountAmount.value);
+    
+    if (new Decimal(card.balance).lessThan(totalDeduction)) {
         return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: '余额不足' };
     }
     
-    const discountAmount = totalAmount.value.minus(deduction);
+    const discountAmount = discountableAmount.value.minus(discountableDeduction);
     return {
       paymentDetails: [{
         cardName: card.cardType.name,
         discountRate: new Decimal(card.cardType.discountRate),
         originalAmountCovered: totalAmount.value,
-        deduction: deduction,
+        deduction: totalDeduction,
         discountAmount: discountAmount,
       }],
-      actualPaidAmount: deduction,
+      actualPaidAmount: totalDeduction,
       discountAmount: discountAmount,
       isPayable: true,
     };
   }
 
-  // 自动模式
-  let remainingAmount = totalAmount.value;
+  // 自动模式 - 先处理无折扣服务，再处理可折扣服务
+  let remainingDiscountableAmount = discountableAmount.value;
+  let remainingNoDiscountAmount = noDiscountAmount.value;
   let totalPaid = new Decimal(0);
   const paymentDetails = [];
   
   for (const card of availableCards.value) {
-    if (remainingAmount.isZero()) break;
+    if (remainingDiscountableAmount.isZero() && remainingNoDiscountAmount.isZero()) break;
     
     const cardBalance = new Decimal(card.balance);
     const discountRate = new Decimal(card.cardType.discountRate);
-    const maxOriginalAmount = cardBalance.div(discountRate);
-    const originalAmountToCover = Decimal.min(remainingAmount, maxOriginalAmount);
-    const deduction = originalAmountToCover.times(discountRate);
+    let cardUsed = new Decimal(0);
+    let originalAmountCovered = new Decimal(0);
+    let discountAmount = new Decimal(0);
+    
+    // 先支付无折扣服务（原价）
+    if (!remainingNoDiscountAmount.isZero()) {
+      const noDiscountPayment = Decimal.min(remainingNoDiscountAmount, cardBalance);
+      cardUsed = cardUsed.plus(noDiscountPayment);
+      originalAmountCovered = originalAmountCovered.plus(noDiscountPayment);
+      remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountPayment);
+    }
+    
+    // 再支付可折扣服务（打折价）
+    if (!remainingDiscountableAmount.isZero() && cardUsed.lessThan(cardBalance)) {
+      const remainingBalance = cardBalance.minus(cardUsed);
+      const maxDiscountableAmount = remainingBalance.div(discountRate);
+      const discountablePayment = Decimal.min(remainingDiscountableAmount, maxDiscountableAmount);
+      const discountableDeduction = discountablePayment.times(discountRate);
+      
+      cardUsed = cardUsed.plus(discountableDeduction);
+      originalAmountCovered = originalAmountCovered.plus(discountablePayment);
+      discountAmount = discountablePayment.minus(discountableDeduction);
+      remainingDiscountableAmount = remainingDiscountableAmount.minus(discountablePayment);
+    }
 
-    totalPaid = totalPaid.plus(deduction);
-    remainingAmount = remainingAmount.minus(originalAmountToCover);
-
-    paymentDetails.push({
-      cardName: card.cardType.name,
-      discountRate: discountRate,
-      originalAmountCovered: originalAmountToCover,
-      deduction: deduction,
-      discountAmount: originalAmountToCover.minus(deduction),
-    });
+    if (originalAmountCovered.gt(0)) {
+      totalPaid = totalPaid.plus(cardUsed);
+      paymentDetails.push({
+        cardName: card.cardType.name,
+        discountRate: discountRate,
+        originalAmountCovered: originalAmountCovered,
+        deduction: cardUsed,
+        discountAmount: discountAmount,
+      });
+    }
   }
 
-  if (!remainingAmount.isZero()) {
-    return { paymentDetails, actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: `所有会员卡余额不足，仍有 ¥${remainingAmount.toFixed(2)} 未支付` };
+  if (!remainingDiscountableAmount.isZero() || !remainingNoDiscountAmount.isZero()) {
+    const remaining = remainingDiscountableAmount.plus(remainingNoDiscountAmount);
+    return { paymentDetails, actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0), error: `所有会员卡余额不足，仍有 ¥${remaining.toFixed(2)} 未支付` };
   }
   
   return {
@@ -557,8 +803,28 @@ const paymentPlan = computed(() => {
 });
 
 
-const displayActualPaidAmount = computed(() => new Decimal(paymentPlan.value.actualPaidAmount || 0));
+const displayActualPaidAmount = computed(() => {
+  // 如果有手动价格调整，使用调整后的金额
+  if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
+    return new Decimal(manualPriceAdjustment.adjustedAmount);
+  }
+  return new Decimal(paymentPlan.value.actualPaidAmount || 0);
+});
 const displayDiscountAmount = computed(() => new Decimal(paymentPlan.value.discountAmount || 0));
+
+// 计算价格调整差额
+const adjustmentDifferenceText = computed(() => {
+  const dialogAmount = priceAdjustmentDialog.newAmount || priceConfirmDialog.newAmount;
+  if (!dialogAmount) return '';
+  
+  const originalAmount = new Decimal(paymentPlan.value.actualPaidAmount || 0);
+  const newAmount = new Decimal(dialogAmount);
+  const difference = newAmount.minus(originalAmount);
+  
+  if (difference.isZero()) return '无变化';
+  if (difference.isPositive()) return `增加 ¥${difference.toFixed(2)}`;
+  return `减少 ¥${difference.abs().toFixed(2)}`;
+});
 
 const averageDiscountRateText = computed(() => {
   if (displayDiscountAmount.value.isZero()) return '';
@@ -579,7 +845,6 @@ const averageDiscountRateText = computed(() => {
 
 const isCheckoutReady = computed(() => {
   if (cartItems.value.length === 0) return false;
-  if (commissionableStaff.value.length > 0 && !form.staffId) return false; 
   if (form.paymentMethod === 'MEMBER_CARD' && paymentPlan.value.error) return false;
   return true;
 });
@@ -603,18 +868,137 @@ const clearMember = () => {
   cardPaymentMode.value = 'auto';
 };
 
+// --- 价格调整方法 ---
+const openPriceAdjustmentDialog = () => {
+  priceAdjustmentDialog.visible = true;
+  priceAdjustmentDialog.newAmount = parseFloat(displayActualPaidAmount.value.toFixed(2));
+};
+
+const confirmPriceAdjustment = () => {
+  if (!priceAdjustmentDialog.newAmount || priceAdjustmentDialog.newAmount < 0) {
+    ElMessage.error('请输入有效的调整金额');
+    return;
+  }
+  
+  priceAdjustmentDialog.visible = false;
+  priceConfirmDialog.visible = true;
+  priceConfirmDialog.newAmount = priceAdjustmentDialog.newAmount;
+  priceConfirmDialog.reason = '';
+};
+
+const applyPriceAdjustment = () => {
+  if (!priceConfirmDialog.reason?.trim()) {
+    ElMessage.error('请输入价格调整原因');
+    return;
+  }
+  
+  // 应用价格调整
+  manualPriceAdjustment.isActive = true;
+  manualPriceAdjustment.adjustedAmount = priceConfirmDialog.newAmount;
+  manualPriceAdjustment.reason = priceConfirmDialog.reason.trim();
+  
+  // 关闭对话框
+  priceConfirmDialog.visible = false;
+  
+  const originalAmount = new Decimal(paymentPlan.value.actualPaidAmount || 0);
+  const newAmount = new Decimal(priceConfirmDialog.newAmount);
+  const difference = newAmount.minus(originalAmount);
+  
+  if (difference.isPositive()) {
+    ElMessage.success(`价格已调整，增加 ¥${difference.toFixed(2)}`);
+  } else if (difference.isNegative()) {
+    ElMessage.success(`价格已调整，减少 ¥${difference.abs().toFixed(2)}`);
+  } else {
+    ElMessage.info('价格无变化');
+  }
+};
+
 const resetForm = async () => {
   clearMember();
   form.serviceIds = [];
   form.notes = '';
   form.appointmentId = null;
   
+  // 重置价格调整状态
+  manualPriceAdjustment.isActive = false;
+  manualPriceAdjustment.adjustedAmount = null;
+  manualPriceAdjustment.reason = '';
+  
   // 清空服务数量映射
   Object.keys(serviceQuantities).forEach(key => {
     delete serviceQuantities[key];
   });
   
+  // 重新设置默认选中排序为0的服务
+  const defaultService = serviceList.value.find(service => service.sortOrder === 0 && service.status === 'AVAILABLE');
+  if (defaultService) {
+    form.serviceIds = [defaultService.id];
+    initializeServiceQuantity(defaultService.id);
+  }
+  
+  // 重新设置默认选中排序为0的员工
+  const defaultStaff = allStaff.value.find(staff => staff.sortOrder === 0 && staff.countsCommission);
+  if (defaultStaff) {
+    form.staffId = defaultStaff.id;
+  }
+  
   await fetchTodayTransactions();
+};
+
+// 获取调整差额文本
+const getAdjustmentText = (row) => {
+  if (!row.manualAdjustment) return '';
+  
+  const totalAmount = parseFloat(row.totalAmount);
+  const adjustedAmount = parseFloat(row.actualPaidAmount);
+  const difference = adjustedAmount - totalAmount;
+  
+  if (difference > 0) return `+¥ ${difference.toFixed(2)}`;
+  if (difference < 0) return `¥ ${difference.toFixed(2)}`;
+  return '价格调整';
+};
+
+// 获取调整原因
+const getAdjustmentReason = (row) => {
+  if (!row.manualAdjustment || !row.notes) return '';
+  
+  const match = row.notes.match(/价格调整：(.+?)(?:\s*\||$)/);
+  return match ? match[1].trim() : '';
+};
+
+// 获取会员卡折扣显示
+const getCardDiscountDisplay = (discountRate) => {
+  if (!discountRate) return 10;
+  
+  // 处理Decimal对象或字符串类型的discountRate
+  const rate = typeof discountRate === 'object' ? parseFloat(discountRate.toString()) : parseFloat(discountRate);
+  // discountRate 0.8 表示打8折，所以直接乘以10
+  const discount = rate * 10;
+  
+  // 处理小数点，如6.5折
+  return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
+};
+
+// 获取单个服务的折扣信息文本
+const getServiceDiscountText = (service) => {
+  if (!selectedMember.value || form.paymentMethod !== 'MEMBER_CARD') {
+    return '原价 ¥' + new Decimal(service.standardPrice).toFixed(2);
+  }
+  
+  if (service.noDiscount) {
+    return '无折扣 ¥' + new Decimal(service.standardPrice).toFixed(2);
+  }
+  
+  // 获取最优惠的会员卡折扣率
+  const bestCard = availableCards.value.length > 0 ? availableCards.value[0] : null;
+  if (bestCard) {
+    const discountRate = new Decimal(bestCard.cardType.discountRate);
+    const discountedPrice = new Decimal(service.standardPrice).times(discountRate);
+    const discountText = getCardDiscountDisplay(bestCard.cardType.discountRate);
+    return `${discountText}折 ¥${discountedPrice.toFixed(2)}`;
+  }
+  
+  return '原价 ¥' + new Decimal(service.standardPrice).toFixed(2);
 };
 
 const handleCheckout = async () => {
@@ -625,15 +1009,28 @@ const handleCheckout = async () => {
   
   isSubmitting.value = true;
   try {
+    // 准备提交数据，包含价格调整信息
+    const submitData = { ...form };
+    
+    // 如果有价格调整，添加相关信息
+    if (manualPriceAdjustment.isActive) {
+      submitData.manualPriceAdjustment = {
+        adjustedAmount: manualPriceAdjustment.adjustedAmount,
+        reason: manualPriceAdjustment.reason
+      };
+    }
+    
     const apiCall = (form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode.value === 'auto')
-      ? createComboCheckout(form)
-      : createTransaction(form);
+      ? createComboCheckout(submitData)
+      : createTransaction(submitData);
       
     await apiCall;
     ElMessage.success('结算成功！');
     await resetForm();
+    await fetchTodayTransactions(); // 刷新消费记录
   } catch (error) {
     console.error("结算失败:", error);
+    ElMessage.error('结算失败，请重试');
   } finally {
     isSubmitting.value = false;
   }
@@ -656,6 +1053,26 @@ const handleCheckout = async () => {
 .summary { display: flex; flex-direction: column; gap: 15px; font-size: 16px; }
 .summary-item { display: flex; justify-content: space-between; }
 .discount-text { color: #f56c6c; }
+
+.service-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.service-name {
+  font-weight: 500;
+}
+
+.service-discount-info {
+  display: flex;
+  align-items: center;
+}
+
+.discount-tag {
+  font-size: 11px;
+  border-radius: 4px;
+}
 .total { font-weight: bold; font-size: 18px; }
 .total-price { color: #e6a23c; font-size: 22px; }
 .today-records { margin-top: 20px; }
@@ -663,7 +1080,34 @@ const handleCheckout = async () => {
 .today-table :deep(th) { background-color: #fafafa !important; }
 .today-table :deep(.el-table__cell) { border: none; }
 .today-table::before { display: none; }
-.paid-amount { font-weight: 500; }
+.paid-amount { font-weight: 500; color: #E6A23C; }
+
+.total-price-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.price-adjustment-controls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.adjustment-button {
+  font-size: 12px;
+}
+
+.adjustment-reason {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+.price-confirm-content .el-alert {
+  margin-bottom: 20px;
+}
 .suggestion-item { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 .suggestion-info { flex-grow: 1; }
 .suggestion-tags { display: flex; gap: 5px; flex-shrink: 0; margin-left: 15px; }

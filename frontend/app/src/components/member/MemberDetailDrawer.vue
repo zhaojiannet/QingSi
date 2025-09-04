@@ -18,7 +18,17 @@
         </el-descriptions-item>
         <el-descriptions-item label="注册日期" :span="2">{{ formatDateInAppTimeZone(member.registrationDate) }}</el-descriptions-item>
         <el-descriptions-item label="生日">{{ formatDateInAppTimeZone(member.birthday) }}</el-descriptions-item>
-        <el-descriptions-item label="最后消费">{{ formatInAppTimeZone(member.lastVisitDate) }}</el-descriptions-item>
+        <el-descriptions-item label="最后消费">
+          <el-tooltip
+            v-if="member.lastVisitDate"
+            :content="formatFullDateTimeInAppTimeZone(member.lastVisitDate)"
+            placement="top"
+            effect="dark"
+          >
+            {{ formatShortDateInAppTimeZone(member.lastVisitDate) }}
+          </el-tooltip>
+          <span v-else>暂无消费记录</span>
+        </el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ member.notes || '无' }}</el-descriptions-item>
       </el-descriptions>
 
@@ -36,7 +46,13 @@
               余额: <span>¥{{ new Decimal(card.balance).toFixed(2) }}</span>
             </div>
             <div class="card-issue-date">
-              办卡: {{ formatInAppTimeZone(card.issueDate) }}
+              办卡: <el-tooltip
+                :content="formatFullDateTimeInAppTimeZone(card.issueDate)"
+                placement="top"
+                effect="dark"
+              >
+                {{ formatShortDateInAppTimeZone(card.issueDate) }}
+              </el-tooltip>
             </div>
           </div>
         </div>
@@ -79,6 +95,8 @@
               <el-radio-button value="CASH">现金</el-radio-button>
               <el-radio-button value="WECHAT_PAY">微信</el-radio-button>
               <el-radio-button value="ALIPAY">支付宝</el-radio-button>
+              <el-radio-button value="DOUYIN">抖音</el-radio-button>
+              <el-radio-button value="MEITUAN">美团</el-radio-button>
             </el-radio-group>
           </el-form-item>
         </el-form>
@@ -111,7 +129,7 @@ import { getStaffList } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
 import Decimal from 'decimal.js'; // 确保引入 Decimal.js
 import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType } from '@/utils/formatters.js';
-import { formatInAppTimeZone, formatDateInAppTimeZone } from '@/utils/date.js';
+import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 
 const dialogVisible = ref(false);
 const loading = ref(false);

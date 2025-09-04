@@ -20,9 +20,11 @@
         </el-form-item>
         <el-form-item>
           <el-radio-group v-model="quickDate" @change="handleQuickDateChange">
-            <el-radio-button value="today">今日</el-radio-button>
-            <el-radio-button value="this_week">本周</el-radio-button>
-            <el-radio-button value="this_month">本月</el-radio-button>
+            <el-radio-button value="today">当日</el-radio-button>
+            <el-radio-button value="this_week">当周</el-radio-button>
+            <el-radio-button value="this_month">当月</el-radio-button>
+            <el-radio-button value="this_quarter">当季</el-radio-button>
+            <el-radio-button value="this_year">当年</el-radio-button>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -46,20 +48,124 @@
           </el-col>
         </el-row>
         <div class="transaction-list-container">
-          <h3 class="section-title">消费流水</h3>
-          <el-table :data="transactionList.data" v-loading="transactionList.loading" stripe max-height="500">
-            <el-table-column prop="transactionTime" label="时间" width="180">
-              <template #default="{ row }">{{ formatInAppTimeZone(row.transactionTime) }}</template>
-            </el-table-column>
-            <el-table-column label="姓名">
+          <div class="transaction-header">
+            <h3 class="section-title">
+              消费流水
+              <span v-if="memberSearch" class="filter-info">
+                （筛选结果：{{ filteredTransactions.length }} 条记录）
+              </span>
+            </h3>
+            <!-- 会员筛选搜索框 -->
+            <el-form :inline="true" class="member-filter-form">
+              <el-form-item label="搜索">
+                <el-input
+                  v-model="memberSearch"
+                  :placeholder="transactionList.searchLoading ? '正在搜索...' : '输入会员姓名或手机号'"
+                  clearable
+                  style="width: 250px;"
+                  @input="handleMemberSearchChange"
+                  :loading="transactionList.searchLoading"
+                >
+                  <template #prefix>
+                    <el-icon><Search /></el-icon>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-form>
+          </div>
+          <div class="transaction-table-container">
+            <el-table 
+              :data="filteredTransactions" 
+              v-loading="transactionList.loading" 
+              stripe
+              ref="transactionTableRef"
+              style="width: 100%"
+              :row-key="row => row.id"
+            >
+            <el-table-column label="姓名" width="100">
               <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
             </el-table-column>
-            <el-table-column label="服务项目">
-              <template #default="{ row }">{{ row.summary || row.items.map(item => item.service.name).join(', ') }}</template>
+            <el-table-column label="手机号" width="120">
+              <template #default="{ row }">{{ row.member?.phone || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="staff.name" label="服务员工" />
-            <el-table-column prop="actualPaidAmount" label="实付金额(元)" align="right" />
-          </el-table>
+            <el-table-column label="会员卡" width="120">
+              <template #default="{ row }">
+                <el-tag v-if="row.member && row.cardUsed" type="primary" size="small">
+                  {{ row.cardUsed.cardType?.name || '会员卡' }}
+                </el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="服务项目">
+              <template #default="{ row }">{{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}</template>
+            </el-table-column>
+            <el-table-column label="数量" width="60" align="center">
+              <template #default="{ row }">
+                <span v-if="row.items && row.items.length > 0">
+                  {{ row.items.reduce((sum, item) => sum + (item.quantity || 1), 0) }}
+                </span>
+                <span v-else>1</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="服务员工" width="100">
+              <template #default="{ row }">{{ row.staff?.name || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="应付金额" width="90" align="right">
+              <template #default="{ row }">¥{{ row.totalAmount }}</template>
+            </el-table-column>
+            <el-table-column label="折扣" width="180" align="left">
+              <template #default="{ row }">
+                <div v-if="row.manualAdjustment">
+                  <el-tag type="warning" size="small">{{ getAdjustmentText(row) }}</el-tag>
+                  <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
+                    {{ getAdjustmentReason(row) }}
+                  </div>
+                </div>
+                <div v-else-if="row.member && row.cardUsed && parseFloat(row.discountAmount) > 0">
+                  <el-tag type="primary" size="small">
+                    {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
+                  </el-tag>
+                </div>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="实付金额" width="90" align="right">
+              <template #default="{ row }">
+                <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="transactionTime" label="时间" width="150" align="center">
+              <template #default="{ row }">
+                <el-tooltip
+                  :content="formatFullDateTimeInAppTimeZone(row.transactionTime)"
+                  placement="top"
+                  effect="dark"
+                >
+                  {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+                </el-tooltip>
+              </template>
+            </el-table-column>
+            </el-table>
+            
+            <!-- 分页加载更多区域 -->
+            <div class="pagination-section">
+              <div v-if="transactionList.pagination.hasMore" class="load-more-container">
+                <el-button 
+                  @click="loadMore" 
+                  :loading="transactionList.searchLoading"
+                  type="primary"
+                  size="small"
+                  plain
+                >
+                  {{ transactionList.searchLoading ? '加载中...' : `加载更多 (已显示 ${transactionList.data.length}/${transactionList.pagination.total} 条)` }}
+                </el-button>
+              </div>
+              <div v-else-if="transactionList.data.length > 0" class="all-loaded">
+                已显示全部 {{ transactionList.pagination.total }} 条记录
+              </div>
+            </div>
+            
+          </div>
         </div>
       </el-tab-pane>
 
@@ -188,16 +294,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
+import { Search } from '@element-plus/icons-vue';
 import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary } from '@/api/report.js';
 import { getTransactionsByDateRange } from '@/api/transaction.js';
 import { useSystemStore } from '@/stores/system';
-import { formatInAppTimeZone, formatDateInAppTimeZone } from '@/utils/date.js';
+import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 
 use([
@@ -214,6 +321,7 @@ const systemStore = useSystemStore();
 
 const dateRange = ref([]);
 const quickDate = ref('today');
+const memberSearch = ref('');
 
 // --- 报表数据状态 ---
 const businessReport = reactive({
@@ -223,6 +331,13 @@ const businessReport = reactive({
 const transactionList = reactive({
   loading: false,
   data: [],
+  pagination: {
+    page: 1,
+    limit: 50,
+    total: 0,
+    hasMore: true
+  },
+  searchLoading: false
 });
 const paymentSummary = reactive({
   loading: false,
@@ -239,23 +354,294 @@ const memberRanking = reactive({ loading: false, data: [] });
 const birthdayReminders = reactive({ loading: false, data: [] });
 const sleepingMembers = reactive({ loading: false, data: [] });
 
+// --- 会员搜索和过滤 ---
+// 现在直接显示服务器端返回的数据，不需要前端过滤
+const filteredTransactions = computed(() => {
+  return transactionList.data;
+});
+
+// 搜索防抖
+let searchTimer = null;
+
+const handleMemberSearchChange = () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  
+  searchTimer = setTimeout(() => {
+    // 搜索时重置到第一页并清空数据
+    transactionList.pagination.page = 1;
+    fetchTransactionData(true);
+  }, 500); // 500ms防抖
+};
+
+// 搜索功能现在只在已加载的数据中进行，用户可以通过滚动加载更多数据来扩大搜索范围
+
+// 表格引用
+const transactionTableRef = ref(null);
+// 滚动监听清理函数
+let scrollCleanup = null;
+
+// 加载更多交易记录
+const loadMoreTransactions = async () => {
+  if (transactionList.loadingMore || !transactionList.hasMore) return;
+  
+  console.log('开始加载第', transactionList.page + 1, '页数据');
+  transactionList.page++;
+  
+  // 保存当前数据长度，用于后续检查
+  const beforeDataLength = transactionList.data.length;
+  
+  await fetchBusinessData(false);
+  
+  const afterDataLength = transactionList.data.length;
+  const newItemsCount = afterDataLength - beforeDataLength;
+  
+  console.log('第', transactionList.page, '页数据加载完成', {
+    新增数据: newItemsCount,
+    总数据量: afterDataLength,
+    剩余可加载: transactionList.hasMore
+  });
+};
+
+// 主容器滚动加载检测
+const setupScrollListener = () => {
+  // 防抖函数
+  let scrollTimer = null;
+  
+  const handleScroll = (event) => {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    
+    scrollTimer = setTimeout(() => {
+      // 只在业务概览tab时才检测
+      if (activeTab.value !== 'business') return;
+      
+      const target = event.target;
+      const scrollTop = target.scrollTop;
+      const scrollHeight = target.scrollHeight;
+      const clientHeight = target.clientHeight;
+      
+      const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+      
+      console.log('主容器滚动检测:', {
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        distanceToBottom,
+        hasMore: transactionList.hasMore,
+        loadingMore: transactionList.loadingMore
+      });
+      
+      // 距离底部150px时开始加载，但要确保不会无限触发
+      if (distanceToBottom <= 150) {
+        const now = Date.now();
+        // 防止频繁触发：至少间隔1.5秒，并且必须有更多数据且不在加载中
+        const timeSinceLastTrigger = now - transactionList.lastTriggerTime;
+        
+        if (transactionList.hasMore && !transactionList.loadingMore && timeSinceLastTrigger > 1500) {
+          console.log('🚀 主容器滚动触发自动加载更多数据', {
+            distanceToBottom,
+            page: transactionList.page + 1,
+            currentDataLength: transactionList.data.length,
+            total: transactionList.total
+          });
+          transactionList.lastTriggerTime = now;
+          loadMoreTransactions();
+        } else if (transactionList.loadingMore) {
+          console.log('📡 正在加载中，跳过触发');
+        } else if (!transactionList.hasMore) {
+          console.log('✅ 所有数据已加载完成');
+        } else if (timeSinceLastTrigger <= 1500) {
+          console.log('⏳ 距离上次触发时间不足1.5秒，跳过本次触发');
+        }
+      }
+    }, 100); // 100ms防抖
+  };
+  
+  // 查找主容器（.app-main）
+  const findMainContainer = () => {
+    return document.querySelector('.app-main');
+  };
+  
+  const mainContainer = findMainContainer();
+  
+  if (mainContainer) {
+    mainContainer.addEventListener('scroll', handleScroll);
+    console.log('📜 主容器滚动监听已启动', mainContainer);
+    
+    // 返回清理函数
+    return () => {
+      mainContainer.removeEventListener('scroll', handleScroll);
+      if (scrollTimer) clearTimeout(scrollTimer);
+      console.log('📜 主容器滚动监听已清理');
+    };
+  } else {
+    console.warn('⚠️ 未找到主容器 .app-main，使用 window 滚动监听作为备选');
+    
+    // 备选方案：监听window滚动
+    const handleWindowScroll = () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      
+      scrollTimer = setTimeout(() => {
+        if (activeTab.value !== 'business') return;
+        
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const windowHeight = window.innerHeight;
+        const documentHeight = document.documentElement.scrollHeight;
+        const distanceToBottom = documentHeight - (scrollTop + windowHeight);
+        
+        console.log('Window滚动检测:', {
+          scrollTop,
+          windowHeight,
+          documentHeight,
+          distanceToBottom,
+          hasMore: transactionList.hasMore,
+          loadingMore: transactionList.loadingMore
+        });
+        
+        if (distanceToBottom <= 150) {
+          const now = Date.now();
+          const timeSinceLastTrigger = now - transactionList.lastTriggerTime;
+          
+          if (transactionList.hasMore && !transactionList.loadingMore && timeSinceLastTrigger > 1500) {
+            console.log('🚀 Window滚动触发自动加载更多数据');
+            transactionList.lastTriggerTime = now;
+            loadMoreTransactions();
+          } else if (transactionList.loadingMore) {
+            console.log('📡 正在加载中，跳过触发');
+          } else if (timeSinceLastTrigger <= 1500) {
+            console.log('⏳ 距离上次触发时间不足1.5秒，跳过本次触发');
+          }
+        }
+      }, 100);
+    };
+    
+    window.addEventListener('scroll', handleWindowScroll);
+    
+    return () => {
+      window.removeEventListener('scroll', handleWindowScroll);
+      if (scrollTimer) clearTimeout(scrollTimer);
+      console.log('📜 Window滚动监听已清理');
+    };
+  }
+};
+
 // --- 数据获取函数 ---
 const fetchBusinessData = async () => {
   if (!dateRange.value || dateRange.value.length !== 2) return;
   const params = { startDate: dateRange.value[0], endDate: dateRange.value[1] };
   businessReport.loading = true;
-  transactionList.loading = true;
   try {
-    const [reportData, transactionsData] = await Promise.all([
-      getBusinessReport(params),
-      getTransactionsByDateRange(params)
-    ]);
+    const reportData = await getBusinessReport(params);
     businessReport.data = reportData;
-    transactionList.data = transactionsData;
   } finally {
     businessReport.loading = false;
-    transactionList.loading = false;
   }
+  
+  // 获取第一页交易数据
+  await fetchTransactionData(true);
+};
+
+// 获取交易数据（支持分页和搜索）
+const fetchTransactionData = async (reset = false) => {
+  if (!dateRange.value || dateRange.value.length !== 2) return;
+  
+  if (reset) {
+    transactionList.pagination.page = 1;
+    transactionList.data = [];
+  }
+  
+  const params = {
+    startDate: dateRange.value[0],
+    endDate: dateRange.value[1],
+    page: transactionList.pagination.page,
+    limit: transactionList.pagination.limit,
+    search: memberSearch.value || ''
+  };
+  
+  transactionList.loading = reset;
+  transactionList.searchLoading = !reset;
+  
+  try {
+    const response = await getTransactionsByDateRange(params);
+    
+    // 处理交易数据，添加手动调整检测
+    const processedData = response.data.map(tx => ({
+      ...tx,
+      manualAdjustment: tx.notes && tx.notes.includes('价格调整：')
+    }));
+    
+    if (reset) {
+      transactionList.data = processedData;
+    } else {
+      transactionList.data.push(...processedData);
+    }
+    
+    // 更新分页信息
+    transactionList.pagination = {
+      ...transactionList.pagination,
+      total: response.pagination.total,
+      hasMore: response.pagination.hasMore
+    };
+    
+  } finally {
+    transactionList.loading = false;
+    transactionList.searchLoading = false;
+  }
+};
+
+// 加载更多数据
+const loadMore = async () => {
+  if (!transactionList.pagination.hasMore || transactionList.loading || transactionList.searchLoading) {
+    return;
+  }
+  
+  // 保存当前滚动位置，保持用户在加载按钮处
+  const scrollContainer = document.querySelector('.app-main');
+  const currentScrollTop = scrollContainer?.scrollTop || 0;
+  
+  transactionList.pagination.page++;
+  await fetchTransactionData(false);
+  
+  // 加载完成后，保持用户在原来的滚动位置
+  // 新数据会在下方增加，用户需要手动滚动才能看到
+  nextTick(() => {
+    if (scrollContainer) {
+      scrollContainer.scrollTop = currentScrollTop;
+    }
+  });
+};
+
+// 获取调整差额文本
+const getAdjustmentText = (row) => {
+  if (!row.manualAdjustment) return '';
+  
+  const totalAmount = parseFloat(row.totalAmount);
+  const adjustedAmount = parseFloat(row.actualPaidAmount);
+  const difference = adjustedAmount - totalAmount;
+  
+  if (difference > 0) return `+¥ ${difference.toFixed(2)}`;
+  if (difference < 0) return `¥ ${difference.toFixed(2)}`;
+  return '价格调整';
+};
+
+// 获取调整原因
+const getAdjustmentReason = (row) => {
+  if (!row.manualAdjustment || !row.notes) return '';
+  
+  const match = row.notes.match(/价格调整：(.+?)(?:\s*\||$)/);
+  return match ? match[1].trim() : '';
+};
+
+// 获取会员卡折扣显示
+const getCardDiscountDisplay = (discountRate) => {
+  if (!discountRate) return 10;
+  
+  // 处理Decimal对象或字符串类型的discountRate
+  const rate = typeof discountRate === 'object' ? parseFloat(discountRate.toString()) : parseFloat(discountRate);
+  // discountRate 0.8 表示打8折，所以直接乘以10
+  const discount = rate * 10;
+  
+  // 处理小数点，如6.5折
+  return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
 };
 
 const generatePieOption = (title, data) => ({
@@ -374,6 +760,17 @@ const handleQuickDateChange = (value) => {
       start = new Date(today.getFullYear(), today.getMonth(), 1);
       end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       break;
+    case 'this_quarter': {
+      const currentMonth = today.getMonth();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      start = new Date(today.getFullYear(), quarterStartMonth, 1);
+      end = new Date(today.getFullYear(), quarterStartMonth + 3, 0);
+      break;
+    }
+    case 'this_year':
+      start = new Date(today.getFullYear(), 0, 1);
+      end = new Date(today.getFullYear(), 11, 31);
+      break;
   }
   const formatDate = (d) => d.toISOString().split('T')[0];
   dateRange.value = [formatDate(start), formatDate(end)];
@@ -383,7 +780,9 @@ const handleQuickDateChange = (value) => {
 const reloadCurrentTabData = () => {
   // 根据当前激活的Tab，调用对应的加载函数
   const tabLoadFunctions = {
-    business: fetchBusinessData,
+    business: () => {
+      fetchBusinessData(true);
+    },
     paymentSummary: fetchPaymentSummary,
     cardSalesSummary: fetchCardSalesSummary,
   };
@@ -395,6 +794,15 @@ const reloadCurrentTabData = () => {
 
 onMounted(() => {
   handleQuickDateChange('today');
+  // 设置页面滚动监听
+  scrollCleanup = setupScrollListener();
+});
+
+onUnmounted(() => {
+  // 清理滚动监听器
+  if (scrollCleanup) {
+    scrollCleanup();
+  }
 });
 
 watch(activeTab, (newTab) => {
@@ -423,6 +831,16 @@ watch(activeTab, (newTab) => {
     if (loadFunc) {
       loadFunc();
     }
+  }
+  
+  // 当切换到业务概览tab时，确保滚动监听是激活的
+  if (newTab === 'business' && !scrollCleanup) {
+    scrollCleanup = setupScrollListener();
+  }
+  // 当离开业务概览tab时，清理滚动监听避免误触发
+  else if (newTab !== 'business' && scrollCleanup) {
+    scrollCleanup();
+    scrollCleanup = null;
   }
 });
 </script>
@@ -455,13 +873,43 @@ watch(activeTab, (newTab) => {
 .transaction-list-container {
     margin-top: 30px;
 }
+.transaction-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e4e7ed;
+}
 .section-title {
     font-size: 18px;
     color: #303133;
-    margin-bottom: 15px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e4e7ed;
+    margin: 0;
+    padding: 0;
+    border: none;
+    flex: 1;
+    min-width: 200px;
 }
+.member-filter-form {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.member-filter-form .el-form-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0;
+}
+.filter-info {
+    font-size: 14px;
+    color: #909399;
+    font-weight: normal;
+    margin-left: 10px;
+}
+
 .chart-table-layout {
   display: flex;
   gap: 20px;
@@ -480,4 +928,36 @@ watch(activeTab, (newTab) => {
   flex: 1;
   min-width: 300px;
 }
+
+.paid-amount { 
+  font-weight: 500; 
+  color: #E6A23C; 
+}
+
+.adjustment-reason {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+.pagination-section {
+  padding: 20px;
+  text-align: center;
+  border-top: 1px solid #e4e7ed;
+  background-color: #fafafa;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.all-loaded {
+  color: #909399;
+  font-size: 14px;
+  padding: 10px 0;
+}
+
 </style>

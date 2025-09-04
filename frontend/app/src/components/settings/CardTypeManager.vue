@@ -26,7 +26,7 @@
     </el-table>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑卡类型' : '新增卡类型'" width="500px" @closed="onDialogClosed">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="no-wrap-labels">
         <el-form-item label="卡类型名称" prop="name">
           <el-input v-model="form.name" placeholder="如：300元储值卡" />
         </el-form-item>
@@ -174,5 +174,9 @@ const handleDelete = async (id) => {
   justify-content: space-between;
   align-items: center;
   width: 100%;
+}
+
+.no-wrap-labels :deep(.el-form-item__label) {
+  white-space: nowrap;
 }
 </style>

@@ -27,7 +27,8 @@
     "fastify": "^5.4.0",
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.1.5",
-    "svg-captcha": "^1.4.0"
+    "svg-captcha": "^1.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "prisma": "^6.12.0"

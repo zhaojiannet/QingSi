@@ -71,6 +71,7 @@ export default async function (fastify, opts) {
                 select: {
                   id: true,
                   balance: true,
+                  status: true,
                   cardType: {
                     select: {
                       id: true,

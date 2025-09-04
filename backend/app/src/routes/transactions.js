@@ -16,6 +16,7 @@ export default async function (fastify, opts) {
       cardId,
       notes,
       appointmentId,
+      manualPriceAdjustment,
     } = request.body;
 
     if (!serviceIds || !serviceIds.length || !paymentMethod) {
@@ -32,8 +33,28 @@ export default async function (fastify, opts) {
       }
       
       const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      
+      // 分离参加折扣和不参加折扣的服务
+      const discountableAmount = services
+        .filter(s => !s.noDiscount)
+        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      const noDiscountAmount = services
+        .filter(s => s.noDiscount)
+        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      
       let actualPaidAmount = totalAmount;
+      let discountAmount = new Decimal(0);
       let cardUsed = null;
+      let isManualAdjustment = false;
+
+      // 如果有手动价格调整
+      if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
+        actualPaidAmount = new Decimal(manualPriceAdjustment.adjustedAmount);
+        isManualAdjustment = true;
+        
+        // 计算手动调整的折扣金额（可能为负数，表示加价）
+        discountAmount = totalAmount.minus(actualPaidAmount);
+      }
 
       if (paymentMethod === 'MEMBER_CARD') {
         cardUsed = await prisma.card.findUnique({
@@ -46,8 +67,14 @@ export default async function (fastify, opts) {
         }
         
         const cardBalance = new Decimal(cardUsed.balance);
-        const discountRate = new Decimal(cardUsed.cardType.discountRate);
-        actualPaidAmount = totalAmount.times(discountRate);
+
+        // 如果没有手动调整，应用会员卡折扣（仅对可折扣的服务）
+        if (!isManualAdjustment) {
+          const discountRate = new Decimal(cardUsed.cardType.discountRate);
+          const discountedAmount = discountableAmount.times(discountRate);
+          actualPaidAmount = discountedAmount.plus(noDiscountAmount);
+          discountAmount = discountableAmount.minus(discountedAmount);
+        }
 
         if (cardBalance.lessThan(actualPaidAmount)) {
           return reply.code(400).send({ message: '该会员卡余额不足' });
@@ -72,22 +99,30 @@ export default async function (fastify, opts) {
         const newTransaction = await tx.transaction.create({
           data: {
             id: generateId(),
-            summary: '项目消费', // 为常规消费添加一个默认摘要
+            // 不设置summary，让前端显示具体的服务项目名称
             totalAmount: totalAmount.toNumber(),
             actualPaidAmount: actualPaidAmount.toNumber(),
-            discountAmount: totalAmount.minus(actualPaidAmount).toNumber(),
+            discountAmount: discountAmount.toNumber(),
             paymentMethod,
-            notes,
+            notes: isManualAdjustment 
+              ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
+              : notes,
             member: memberId ? { connect: { id: memberId } } : undefined,
             staff: staffId ? { connect: { id: staffId } } : undefined,
             cardUsed: cardId ? { connect: { id: cardId } } : undefined,
             items: {
-              create: services.map(s => ({
-                id: generateId(),
-                serviceId: s.id,
-                price: s.standardPrice,
-                quantity: 1,
-              })),
+              create: (() => {
+                const serviceQuantities = {};
+                serviceIds.forEach(id => {
+                  serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+                });
+                return Object.keys(serviceQuantities).map(serviceId => ({
+                  id: generateId(),
+                  serviceId: serviceId,
+                  price: services.find(s => s.id === serviceId).standardPrice,
+                  quantity: serviceQuantities[serviceId],
+                }));
+              })(),
             },
             appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
           },
@@ -120,7 +155,7 @@ export default async function (fastify, opts) {
 
   // --- 组合支付结算接口 ---
   fastify.post('/combo-checkout', async (request, reply) => {
-    const { memberId, serviceIds, staffId, notes, appointmentId } = request.body;
+    const { memberId, serviceIds, staffId, notes, appointmentId, manualPriceAdjustment } = request.body;
 
     if (!memberId || !serviceIds || !serviceIds.length) {
       return reply.code(400).send({ message: '缺少必要参数：会员、服务项目' });
@@ -154,7 +189,31 @@ export default async function (fastify, opts) {
       
       let remainingAmountToPay = totalAmount;
       let actualPaidTotal = new Decimal(0);
+      let isManualAdjustment = false;
       const paymentDetails = [];
+
+      // 如果有手动价格调整，直接使用调整后的金额
+      if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
+        actualPaidTotal = new Decimal(manualPriceAdjustment.adjustedAmount);
+        isManualAdjustment = true;
+        
+        // 检查余额是否足够支付调整后的金额
+        const totalBalance = memberCards.reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
+        if (totalBalance.lessThan(actualPaidTotal)) {
+          return reply.code(400).send({ message: `所有会员卡余额不足，余额总计 ¥${totalBalance.toFixed(2)}，需支付 ¥${actualPaidTotal.toFixed(2)}` });
+        }
+
+        // 按卡余额分配扣款
+        let remainingToDeduct = actualPaidTotal;
+        for (const card of memberCards) {
+          if (remainingToDeduct.isZero()) break;
+          const cardBalance = new Decimal(card.balance);
+          const deduction = Decimal.min(cardBalance, remainingToDeduct);
+          
+          remainingToDeduct = remainingToDeduct.minus(deduction);
+          paymentDetails.push({ cardId: card.id, deduction: deduction.toNumber() });
+        }
+      } else {
 
       for (const card of memberCards) {
         if (remainingAmountToPay.isZero()) break;
@@ -169,8 +228,9 @@ export default async function (fastify, opts) {
 
         paymentDetails.push({ cardId: card.id, deduction: deduction.toNumber() });
       }
+      }
 
-      if (!remainingAmountToPay.isZero()) {
+      if (!isManualAdjustment && !remainingAmountToPay.isZero()) {
         return reply.code(400).send({ message: `所有会员卡余额不足，仍有 ¥${remainingAmountToPay.toFixed(2)} 未支付` });
       }
 
@@ -187,16 +247,31 @@ export default async function (fastify, opts) {
         const newTransaction = await tx.transaction.create({
             data: {
                 id: generateId(),
-                summary: '项目消费 (会员卡组合支付)', // 为组合支付添加一个摘要
+                // 不设置summary，让前端显示具体的服务项目名称
                 totalAmount: totalAmount.toNumber(),
                 actualPaidAmount: actualPaidTotal.toNumber(),
                 discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
                 paymentMethod: 'MEMBER_CARD',
-                notes,
+                notes: isManualAdjustment 
+                  ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
+                  : notes,
                 member: { connect: { id: memberId } },
                 staff: staffId ? { connect: { id: staffId } } : undefined,
                 appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
-                items: { create: services.map(s => ({ id: generateId(), serviceId: s.id, price: s.standardPrice })) },
+                items: { 
+                  create: (() => {
+                    const serviceQuantities = {};
+                    serviceIds.forEach(id => {
+                      serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+                    });
+                    return Object.keys(serviceQuantities).map(serviceId => ({
+                      id: generateId(),
+                      serviceId: serviceId,
+                      price: services.find(s => s.id === serviceId).standardPrice,
+                      quantity: serviceQuantities[serviceId],
+                    }));
+                  })(),
+                },
             }
         });
         
@@ -305,8 +380,13 @@ export default async function (fastify, opts) {
           },
         },
         include: {
-          member: { select: { name: true } },
+          member: { select: { name: true, phone: true } },
           staff: { select: { name: true } },
+          cardUsed: { 
+            include: { 
+              cardType: { select: { name: true, discountRate: true } } 
+            } 
+          },
           items: { 
             include: { 
               service: { select: { name: true, standardPrice: true } } 
@@ -331,11 +411,23 @@ export default async function (fastify, opts) {
 
 
 
-    // --- 优化点2: 新增流水查询接口 ---
+    // --- 优化点2: 支持服务器端搜索和分页的流水查询接口 ---
   fastify.get('/', async (request, reply) => {
-    const { startDate, endDate } = request.query;
-
+    const { 
+      startDate, 
+      endDate, 
+      page = 1, 
+      limit = 50,
+      search = ''  // 新增搜索参数
+    } = request.query;
+    
+    const pageNum = parseInt(page, 10);
+    const limitNum = Math.min(parseInt(limit, 10), 200); // 最大200条防止性能问题
+    const offset = (pageNum - 1) * limitNum;
+    
     const where = {};
+    
+    // 日期范围过滤
     if (startDate && endDate) {
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
@@ -343,20 +435,85 @@ export default async function (fastify, opts) {
       end.setHours(23, 59, 59, 999);
       where.transactionTime = { gte: start, lte: end };
     }
-
-    const transactions = await prisma.transaction.findMany({
-      where,
-      include: {
-        member: { select: { name: true } },
-        staff: { select: { name: true } },
-        items: { 
-          include: { 
-            service: { select: { name: true, standardPrice: true } } 
-          } 
+    
+    // 服务器端搜索过滤
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      where.OR = [
+        {
+          member: {
+            name: { contains: searchTerm }
+          }
         },
-      },
-      orderBy: { transactionTime: 'desc' },
-    });
+        {
+          member: {
+            phone: { contains: searchTerm }
+          }
+        }
+      ];
+    }
+
+    // 并行执行查询和计数
+    const [transactions, total] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        select: {
+          id: true,
+          memberId: true,
+          staffId: true,
+          summary: true,
+          totalAmount: true,
+          actualPaidAmount: true,
+          discountAmount: true,
+          paymentMethod: true,
+          cardId: true,
+          transactionTime: true,
+          notes: true,
+          member: { 
+            select: { 
+              name: true, 
+              phone: true 
+            } 
+          },
+          staff: { 
+            select: { 
+              name: true 
+            } 
+          },
+          cardUsed: { 
+            select: {
+              id: true,
+              cardType: { 
+                select: { 
+                  name: true, 
+                  discountRate: true 
+                } 
+              }
+            }
+          },
+          items: { 
+            select: {
+              id: true,
+              price: true,
+              quantity: true,
+              service: { 
+                select: { 
+                  name: true, 
+                  standardPrice: true 
+                } 
+              }
+            }
+          },
+        },
+        orderBy: [
+          { transactionTime: 'desc' },
+          { id: 'desc' }  // 添加二级排序确保结果一致
+        ],
+        skip: offset,
+        take: limitNum
+      }),
+      prisma.transaction.count({ where })
+    ]);
 
     const formattedTransactions = transactions.map(t => ({
       ...t,
@@ -365,7 +522,17 @@ export default async function (fastify, opts) {
       discountAmount: new Decimal(t.discountAmount).toFixed(2),
     }));
 
-    return formattedTransactions;
+    // 返回分页结果
+    return {
+      data: formattedTransactions,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+        hasMore: offset + formattedTransactions.length < total
+      }
+    };
   });
 
 

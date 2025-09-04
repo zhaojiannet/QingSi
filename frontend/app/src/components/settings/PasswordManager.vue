@@ -6,6 +6,7 @@
       :rules="rules" 
       label-width="100px"
       style="max-width: 500px"
+      class="no-wrap-labels"
       @keyup.enter="handleSubmit"
     >
       <el-form-item label="旧密码" prop="oldPassword">
@@ -101,5 +102,9 @@ const handleSubmit = async () => {
 <style scoped>
 .password-manager-container {
     padding-top: 20px;
+}
+
+.no-wrap-labels :deep(.el-form-item__label) {
+  white-space: nowrap;
 }
 </style>
