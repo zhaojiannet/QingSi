@@ -40,3 +40,12 @@ export const getComboCheckoutPreview = (data) => {
     data,
   });
 };
+
+// 多卡联合支付（新逻辑：优先清空余额少的卡）
+export const createMultiCardTransaction = (data) => {
+  return request({
+    url: '/transactions/multi-card',
+    method: 'post',
+    data,
+  });
+};

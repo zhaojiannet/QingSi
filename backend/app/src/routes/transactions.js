@@ -4,6 +4,11 @@ import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 
+// 四舍五入到两位小数的工具函数
+const roundToTwoDecimals = (value) => {
+  return Math.round(value * 100) / 100;
+};
+
 export default async function (fastify, opts) {
 
   // --- 创建一笔新消费 (手动选卡或非会员) ---
@@ -535,6 +540,183 @@ export default async function (fastify, opts) {
     };
   });
 
+  // --- 多卡联合支付接口（新逻辑：优先清空余额少的卡） ---
+  fastify.post('/multi-card', async (request, reply) => {
+    const {
+      memberId,
+      staffId,
+      serviceIds,
+      notes,
+      appointmentId,
+      manualPriceAdjustment,
+    } = request.body;
 
+    if (!serviceIds || !serviceIds.length || !memberId) {
+      return reply.code(400).send({ message: '缺少必要参数：会员ID、服务项目' });
+    }
+
+    try {
+      // 1. 获取服务信息
+      const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } });
+      if (services.length !== serviceIds.length) {
+        return reply.code(404).send({ message: '一个或多个服务项目不存在' });
+      }
+      
+      const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      
+      // 分离参加折扣和不参加折扣的服务
+      const discountableAmount = services
+        .filter(s => !s.noDiscount)
+        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      const noDiscountAmount = services
+        .filter(s => s.noDiscount)
+        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+
+      // 2. 获取会员的有效卡片，按余额从小到大排序（优先清空小余额卡）
+      const memberCards = await prisma.card.findMany({
+        where: { 
+          memberId,
+          status: 'ACTIVE',
+          balance: { gt: 0 }
+        },
+        include: { cardType: true },
+        orderBy: { balance: 'asc' } // 关键修改：按余额升序排序
+      });
+
+      if (memberCards.length === 0) {
+        return reply.code(400).send({ message: '该会员没有可用的会员卡' });
+      }
+
+      // 3. 计算多卡最佳支付方案（新逻辑）
+      let remainingDiscountableAmount = discountableAmount;
+      let remainingNoDiscountAmount = noDiscountAmount;
+      let totalPaid = new Decimal(0);
+      const cardPayments = [];
+
+      for (const card of memberCards) {
+        if (remainingDiscountableAmount.isZero() && remainingNoDiscountAmount.isZero()) break;
+        
+        const cardBalance = new Decimal(card.balance);
+        const discountRate = new Decimal(card.cardType.discountRate);
+        let cardUsed = new Decimal(0);
+        let originalAmountCovered = new Decimal(0);
+        let discountAmountFromCard = new Decimal(0);
+
+        // 先支付无折扣服务（原价）
+        if (!remainingNoDiscountAmount.isZero()) {
+          const noDiscountPayment = Decimal.min(remainingNoDiscountAmount, cardBalance);
+          cardUsed = cardUsed.plus(noDiscountPayment);
+          originalAmountCovered = originalAmountCovered.plus(noDiscountPayment);
+          remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountPayment);
+        }
+        
+        // 再支付可折扣服务（打折价）
+        if (!remainingDiscountableAmount.isZero() && cardUsed.lessThan(cardBalance)) {
+          const remainingBalance = cardBalance.minus(cardUsed);
+          const maxDiscountableAmount = remainingBalance.div(discountRate);
+          const discountablePayment = Decimal.min(remainingDiscountableAmount, maxDiscountableAmount);
+          const discountableDeduction = discountablePayment.times(discountRate);
+          
+          // 四舍五入处理
+          const roundedDeduction = new Decimal(roundToTwoDecimals(discountableDeduction.toNumber()));
+          
+          cardUsed = cardUsed.plus(roundedDeduction);
+          originalAmountCovered = originalAmountCovered.plus(discountablePayment);
+          discountAmountFromCard = discountAmountFromCard.plus(discountablePayment.minus(roundedDeduction));
+          remainingDiscountableAmount = remainingDiscountableAmount.minus(discountablePayment);
+        }
+
+        if (originalAmountCovered.gt(0)) {
+          // 四舍五入处理最终扣款金额
+          const finalCardUsed = new Decimal(roundToTwoDecimals(cardUsed.toNumber()));
+          
+          totalPaid = totalPaid.plus(finalCardUsed);
+          cardPayments.push({
+            cardId: card.id,
+            cardName: card.cardType.name,
+            originalAmountCovered: roundToTwoDecimals(originalAmountCovered.toNumber()),
+            actualPaid: roundToTwoDecimals(finalCardUsed.toNumber()),
+            discountAmount: roundToTwoDecimals(discountAmountFromCard.toNumber()),
+            newBalance: roundToTwoDecimals(cardBalance.minus(finalCardUsed).toNumber())
+          });
+        }
+      }
+
+      // 检查是否能够完成支付
+      const totalRemaining = remainingDiscountableAmount.plus(remainingNoDiscountAmount);
+      if (!totalRemaining.isZero()) {
+        return reply.code(400).send({ 
+          message: `所有会员卡余额不足，还需支付: ¥${roundToTwoDecimals(totalRemaining.toNumber())}`,
+          cardPayments: cardPayments,
+          shortfall: roundToTwoDecimals(totalRemaining.toNumber())
+        });
+      }
+
+      // 4. 执行支付
+      const result = await prisma.$transaction(async (tx) => {
+        // 创建交易记录
+        const newTransaction = await tx.transaction.create({
+          data: {
+            id: generateId(),
+            memberId,
+            staffId: staffId || null,
+            summary: '项目消费',
+            totalAmount: roundToTwoDecimals(totalAmount.toNumber()),
+            actualPaidAmount: roundToTwoDecimals(totalPaid.toNumber()),
+            discountAmount: roundToTwoDecimals(totalAmount.minus(totalPaid).toNumber()),
+            paymentMethod: 'MEMBER_CARD',
+            notes: `多卡联合支付: ${cardPayments.map(p => `${p.cardName}¥${p.actualPaid}`).join(' + ')}${notes ? ` | ${notes}` : ''}`,
+            items: {
+              create: (() => {
+                const serviceQuantities = {};
+                serviceIds.forEach(id => {
+                  serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+                });
+                return Object.keys(serviceQuantities).map(serviceId => ({
+                  id: generateId(),
+                  serviceId: serviceId,
+                  price: services.find(s => s.id === serviceId).standardPrice,
+                  quantity: serviceQuantities[serviceId],
+                }));
+              })(),
+            },
+            appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
+          },
+        });
+
+        // 更新各个卡片余额
+        for (const payment of cardPayments) {
+          await tx.card.update({
+            where: { id: payment.cardId },
+            data: { balance: payment.newBalance }
+          });
+        }
+
+        if (appointmentId) {
+          await tx.appointment.update({
+            where: { id: appointmentId },
+            data: { status: 'COMPLETED' }
+          });
+        }
+
+        return tx.transaction.findUnique({
+          where: { id: newTransaction.id },
+          include: { member: true, staff: true, items: { include: { service: true } } },
+        });
+      });
+
+      return {
+        ...result,
+        totalAmount: roundToTwoDecimals(parseFloat(result.totalAmount)),
+        actualPaidAmount: roundToTwoDecimals(parseFloat(result.actualPaidAmount)),
+        discountAmount: roundToTwoDecimals(parseFloat(result.discountAmount)),
+        cardPayments: cardPayments
+      };
+
+    } catch (error) {
+      console.error('多卡支付错误:', error);
+      return reply.code(500).send({ message: '支付处理失败' });
+    }
+  });
 
 }

@@ -88,9 +88,16 @@
             <el-table-column label="手机号" width="120">
               <template #default="{ row }">{{ row.member?.phone || '-' }}</template>
             </el-table-column>
-            <el-table-column label="会员卡" width="120">
+            <el-table-column label="会员卡" width="150">
               <template #default="{ row }">
-                <el-tag v-if="row.member && row.cardUsed" type="primary" size="small">
+                <!-- 多卡支付显示所有卡片 -->
+                <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
+                  <div v-for="cardInfo in getMultiCardList(row)" :key="cardInfo.name" class="card-item">
+                    <el-tag type="warning" size="small">{{ cardInfo.name }}</el-tag>
+                  </div>
+                </div>
+                <!-- 单卡支付 -->
+                <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small">
                   {{ row.cardUsed.cardType?.name || '会员卡' }}
                 </el-tag>
                 <span v-else>-</span>
@@ -121,10 +128,29 @@
                     {{ getAdjustmentReason(row) }}
                   </div>
                 </div>
-                <div v-else-if="row.member && row.cardUsed && parseFloat(row.discountAmount) > 0">
-                  <el-tag type="primary" size="small">
-                    {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
-                  </el-tag>
+                <div v-else-if="row.member && parseFloat(row.discountAmount) > 0">
+                  <!-- 检测多卡支付 -->
+                  <div v-if="isMultiCardPayment(row)" class="multi-card-payment">
+                    <el-tag type="warning" size="small" class="multi-card-tag">
+                      <el-icon><CreditCard /></el-icon>
+                      多卡 {{ getAverageDiscountDisplay(row) }}折 ¥{{ row.discountAmount }}
+                    </el-tag>
+                    <div class="multi-card-details">
+                      {{ getMultiCardDetails(row) }}
+                    </div>
+                  </div>
+                  <!-- 单卡支付 -->
+                  <div v-else-if="row.cardUsed">
+                    <el-tag type="primary" size="small">
+                      {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
+                    </el-tag>
+                  </div>
+                  <!-- 其他会员卡支付 -->
+                  <div v-else>
+                    <el-tag type="success" size="small">
+                      会员卡 ¥{{ row.discountAmount }}
+                    </el-tag>
+                  </div>
                 </div>
                 <span v-else>-</span>
               </template>
@@ -300,7 +326,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
-import { Search } from '@element-plus/icons-vue';
+import { Search, CreditCard } from '@element-plus/icons-vue';
 import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary } from '@/api/report.js';
 import { getTransactionsByDateRange } from '@/api/transaction.js';
 import { useSystemStore } from '@/stores/system';
@@ -644,6 +670,59 @@ const getCardDiscountDisplay = (discountRate) => {
   return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
 };
 
+// 检测是否为多卡支付
+const isMultiCardPayment = (transaction) => {
+  return transaction.notes && transaction.notes.includes('多卡联合支付:');
+};
+
+// 获取平均折扣率显示
+const getAverageDiscountDisplay = (transaction) => {
+  const totalAmount = parseFloat(transaction.totalAmount);
+  const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
+  
+  if (totalAmount <= 0) return '10.0';
+  
+  const avgDiscountRate = actualPaidAmount / totalAmount;
+  const avgDiscount = avgDiscountRate * 10;
+  
+  return avgDiscount % 1 === 0 ? Math.round(avgDiscount) : avgDiscount.toFixed(1);
+};
+
+// 获取多卡支付详情
+const getMultiCardDetails = (transaction) => {
+  if (!transaction.notes) return '';
+  
+  // 从notes中提取多卡支付信息
+  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  return '多卡组合支付';
+};
+
+// 获取多卡支付的卡片列表
+const getMultiCardList = (transaction) => {
+  if (!transaction.notes) return [];
+  
+  // 从notes中提取多卡支付信息：300元储值卡¥12 + 500元储值卡¥3.5
+  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
+  if (match && match[1]) {
+    const cardsText = match[1].trim();
+    // 按 + 分割，提取卡片名称
+    const cardParts = cardsText.split(' + ');
+    return cardParts.map(part => {
+      // 提取卡片名称（去掉金额部分）
+      const cardMatch = part.match(/^([^¥]+)/);
+      return {
+        name: cardMatch ? cardMatch[1].trim() : part.trim()
+      };
+    });
+  }
+  
+  return [];
+};
+
 const generatePieOption = (title, data) => ({
   title: { text: title, left: 'center', top: '5%' },
   tooltip: { trigger: 'item', formatter: '{b} : ¥{c} ({d}%)' },
@@ -958,6 +1037,34 @@ watch(activeTab, (newTab) => {
   color: #909399;
   font-size: 14px;
   padding: 10px 0;
+}
+
+.multi-card-payment {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multi-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.multi-card-details {
+  font-size: 10px;
+  color: #909399;
+  line-height: 1.2;
+}
+
+.multi-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multi-card-list .card-item {
+  display: flex;
 }
 
 </style>
