@@ -31,21 +31,46 @@ export default async function (fastify, opts) {
       return reply.code(400).send({ message: '使用会员卡支付时，必须提供会员ID和卡ID' });
     }
 
-
-      const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } });
-      if (services.length !== serviceIds.length) {
+      // 获取去重的服务ID列表
+      const uniqueServiceIds = [...new Set(serviceIds)];
+      const services = await prisma.service.findMany({ where: { id: { in: uniqueServiceIds } } });
+      
+      // 检查是否所有服务都存在
+      if (services.length !== uniqueServiceIds.length) {
         return reply.code(404).send({ message: '一个或多个服务项目不存在' });
       }
       
-      const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      // 计算数量 - 统计每个服务ID出现的次数
+      const serviceQuantities = {};
+      serviceIds.forEach(id => {
+        serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+      });
+
+      // 根据数量计算总金额
+      const totalAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        const quantity = serviceQuantities[serviceId];
+        return sum.plus(new Decimal(service.standardPrice).times(quantity));
+      }, new Decimal(0));
       
-      // 分离参加折扣和不参加折扣的服务
-      const discountableAmount = services
-        .filter(s => !s.noDiscount)
-        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
-      const noDiscountAmount = services
-        .filter(s => s.noDiscount)
-        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      // 分离参加折扣和不参加折扣的服务（考虑数量）
+      const discountableAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        if (!service.noDiscount) {
+          const quantity = serviceQuantities[serviceId];
+          return sum.plus(new Decimal(service.standardPrice).times(quantity));
+        }
+        return sum;
+      }, new Decimal(0));
+      
+      const noDiscountAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        if (service.noDiscount) {
+          const quantity = serviceQuantities[serviceId];
+          return sum.plus(new Decimal(service.standardPrice).times(quantity));
+        }
+        return sum;
+      }, new Decimal(0));
       
       let actualPaidAmount = totalAmount;
       let discountAmount = new Decimal(0);
@@ -116,18 +141,12 @@ export default async function (fastify, opts) {
             staff: staffId ? { connect: { id: staffId } } : undefined,
             cardUsed: cardId ? { connect: { id: cardId } } : undefined,
             items: {
-              create: (() => {
-                const serviceQuantities = {};
-                serviceIds.forEach(id => {
-                  serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
-                });
-                return Object.keys(serviceQuantities).map(serviceId => ({
-                  id: generateId(),
-                  serviceId: serviceId,
-                  price: services.find(s => s.id === serviceId).standardPrice,
-                  quantity: serviceQuantities[serviceId],
-                }));
-              })(),
+              create: Object.keys(serviceQuantities).map(serviceId => ({
+                id: generateId(),
+                serviceId: serviceId,
+                price: services.find(s => s.id === serviceId).standardPrice,
+                quantity: serviceQuantities[serviceId],
+              })),
             },
             appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
           },
