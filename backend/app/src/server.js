@@ -23,6 +23,7 @@ import reportRoutes from './routes/reports.js';
 import userRoutes from './routes/users.js';
 import configRoutes from './routes/configs.js';
 import cardRoutes from './routes/cards.js';
+import tokenCleaner from './utils/tokenCleaner.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -220,6 +221,10 @@ const start = async () => {
     console.log('=== 启动 Fastify 服务器 ===');
     await fastify.listen({ port: 3000, host: '0.0.0.0' });
     console.log('✅ 服务器启动成功: http://0.0.0.0:3000');
+    
+    // 启动token清理器
+    tokenCleaner.start();
+    console.log('✅ Token清理器启动成功');
   } catch (err) {
     console.error('❌ 服务器启动失败:');
     console.error(err);

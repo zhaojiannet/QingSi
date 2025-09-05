@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 import { login as loginApi, logout as logoutApi } from '@/api/auth';
 import { jwtDecode } from 'jwt-decode';
 import { useSystemStore } from './system'; // 引入 system store
+import tokenManager from '@/utils/tokenManager';
 
 function getInitialState() {
   const accessToken = localStorage.getItem('accessToken');
@@ -13,6 +14,11 @@ function getInitialState() {
     try {
       const decoded = jwtDecode(accessToken);
       if (decoded.exp * 1000 > Date.now()) {
+        // 如果token有效，启动token管理器
+        setTimeout(() => {
+          tokenManager.restart();
+        }, 100);
+        
         return {
           accessToken,
           refreshToken,
@@ -47,6 +53,9 @@ export const useUserStore = defineStore('user', {
         const systemStore = useSystemStore();
         await systemStore.fetchTodayAppointmentCount();
 
+        // 启动token自动刷新管理
+        tokenManager.restart();
+
       } catch (error) {
         return Promise.reject(error);
       }
@@ -63,6 +72,9 @@ export const useUserStore = defineStore('user', {
 
     clearTokensAndRedirect() {
       const refreshToken = this.refreshToken;
+      
+      // 停止token管理器
+      tokenManager.destroy();
       
       this.accessToken = null;
       this.refreshToken = null;
