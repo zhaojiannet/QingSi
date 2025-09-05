@@ -236,7 +236,7 @@
     <div>
       <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
         <el-table-column prop="member.name" label="姓名" width="100">
-          <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
+          <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
         </el-table-column>
         
         <el-table-column label="会员卡" width="150">
@@ -532,7 +532,7 @@ const fetchTodayTransactions = async () => {
       manualAdjustment: tx.notes && tx.notes.includes('价格调整：')
     }));
   } catch(error) {
-    console.error("获取当日流水失败:", error);
+    console.error("获取当日消费记录失败:", error);
     todayTransactions.value = [];
   }
 };

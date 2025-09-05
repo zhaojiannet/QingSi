@@ -10,3 +10,4 @@ export const issueCardWithTransaction = (data) => {
     data, // { memberId, cardTypeId }
   });
 };
+

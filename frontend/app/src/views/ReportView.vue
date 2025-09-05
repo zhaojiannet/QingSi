@@ -50,7 +50,7 @@
         <div class="transaction-list-container">
           <div class="transaction-header">
             <h3 class="section-title">
-              消费流水
+              消费记录
               <span v-if="memberSearch" class="filter-info">
                 （筛选结果：{{ filteredTransactions.length }} 条记录）
               </span>
@@ -83,7 +83,7 @@
               :row-key="row => row.id"
             >
             <el-table-column label="姓名" width="100">
-              <template #default="{ row }">{{ row.member?.name || '非会员用户' }}</template>
+              <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
             </el-table-column>
             <el-table-column label="手机号" width="120">
               <template #default="{ row }">{{ row.member?.phone || '-' }}</template>

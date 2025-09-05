@@ -78,6 +78,7 @@ model Transaction {
   id               String            @id
   memberId         String?
   staffId          String?
+  customerName     String?           // 非会员顾客姓名（手动输入）
   summary          String?
   totalAmount      Decimal           @db.Decimal(10, 2)
   actualPaidAmount Decimal           @db.Decimal(10, 2)
