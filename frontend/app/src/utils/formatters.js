@@ -48,7 +48,7 @@ export const appointmentStatusTagType = (status) => {
  * @returns {string} 本地化的状态文本
  */
 export const cardStatusText = (status) => {
-  const map = { ACTIVE: '有效', DEPLETED: '已用尽', EXPIRED: '已过期', FROZEN: '已冻结' };
+  const map = { ACTIVE: '有效', DEPLETED: '余额已用尽', EXPIRED: '已过期', FROZEN: '已冻结' };
   return map[status] || '未知';
 };
 

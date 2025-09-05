@@ -32,39 +32,6 @@
         <el-descriptions-item label="备注" :span="2">{{ member.notes || '无' }}</el-descriptions-item>
       </el-descriptions>
 
-      <el-divider>名下会员卡</el-divider>
-      
-      <div v-if="member.cards && member.cards.length > 0">
-        <div v-for="card in member.cards" :key="card.id" class="card-item">
-          <div class="card-info">
-            <span class="card-name">{{ card.cardType.name }}</span>
-            <el-tag size="small" :type="cardStatusTagType(card.status)">{{ cardStatusText(card.status) }}</el-tag>
-          </div>
-          <div class="card-details-right">
-            <div class="card-balance">
-              <!-- 核心修复点：对所有金额进行类型转换 -->
-              余额: <span>¥{{ new Decimal(card.balance).toFixed(2) }}</span>
-            </div>
-            <div class="card-issue-date">
-              办卡: <el-tooltip
-                :content="formatFullDateTimeInAppTimeZone(card.issueDate)"
-                placement="top"
-                effect="dark"
-              >
-                {{ formatShortDateInAppTimeZone(card.issueDate) }}
-              </el-tooltip>
-            </div>
-          </div>
-        </div>
-        <div class="card-item total-balance">
-          <span class="card-name">所有有效卡总余额</span>
-          <div class="card-balance">
-            <span>¥{{ totalActiveBalance.toFixed(2) }}</span>
-          </div>
-        </div>
-      </div>
-      <el-empty v-else description="暂无会员卡" />
-
       <el-divider>办理新卡</el-divider>
       <div class="issue-card-section">
         <el-form :model="issueCardForm" label-position="top">
@@ -110,6 +77,54 @@
           确认办理
         </el-button>
       </div>
+
+      <el-divider>名下会员卡</el-divider>
+      
+      <div v-if="member.cards && member.cards.length > 0">
+        <!-- 显示当前可见的会员卡 -->
+        <div v-for="card in visibleCards" :key="card.id" class="card-item">
+          <div class="card-info">
+            <span class="card-name">{{ card.cardType.name }}</span>
+            <el-tag size="small" :type="getEffectiveCardStatusTagType(card)">{{ getEffectiveCardStatusText(card) }}</el-tag>
+          </div>
+          <div class="card-details-right">
+            <div class="card-balance">
+              <!-- 核心修复点：对所有金额进行类型转换 -->
+              余额: <span>¥{{ new Decimal(card.balance).toFixed(2) }}</span>
+            </div>
+            <div class="card-issue-date">
+              办卡: <el-tooltip
+                :content="formatFullDateTimeInAppTimeZone(card.issueDate)"
+                placement="top"
+                effect="dark"
+              >
+                {{ formatShortDateInAppTimeZone(card.issueDate) }}
+              </el-tooltip>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 加载更多按钮 -->
+        <div v-if="hasMoreDepletedCards" class="load-more-section">
+          <el-button 
+            type="primary" 
+            plain
+            style="width: 100%; margin: 15px 0;" 
+            @click="loadMoreDepletedCards"
+            :loading="loadingMoreCards"
+          >
+            加载更多会员卡 ({{ remainingDepletedCardsCount }} 张余额已用尽)
+          </el-button>
+        </div>
+        
+        <div class="card-item total-balance">
+          <span class="card-name">所有有效卡总余额</span>
+          <div class="card-balance">
+            <span>¥{{ totalActiveBalance.toFixed(2) }}</span>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="暂无会员卡" />
     </div>
     <el-result v-else-if="apiError" icon="error" title="加载失败" sub-title="获取会员详细信息失败，请检查网络或权限后重试。">
     </el-result>
@@ -134,10 +149,15 @@ import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZ
 const dialogVisible = ref(false);
 const loading = ref(false);
 const isIssuing = ref(false);
+const loadingMoreCards = ref(false);
 const member = ref(null);
 const allCardTypes = ref([]);
 const allStaff = ref([]);
 const apiError = ref(false);
+
+// 分页状态
+const depletedCardsOffset = ref(0);
+const depletedCardsPageSize = 5;
 
 const issueCardForm = reactive({
   cardTypeId: '',
@@ -157,6 +177,9 @@ const onDialogOpen = async () => {
   if (!member.value?.id) return;
   loading.value = true;
   apiError.value = false;
+  
+  // 重置分页状态
+  depletedCardsOffset.value = 0;
   
   issueCardForm.cardTypeId = '';
   issueCardForm.staffId = null;
@@ -217,6 +240,74 @@ const totalActiveBalance = computed(() => {
     .filter(card => card.status === 'ACTIVE')
     .reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
 });
+
+// 获取有效的会员卡状态文本（考虑余额）
+const getEffectiveCardStatusText = (card) => {
+  // 如果余额为0，优先显示"余额已用尽"
+  if (new Decimal(card.balance).isZero()) {
+    return '余额已用尽';
+  }
+  // 否则显示原始状态
+  return cardStatusText(card.status);
+};
+
+// 获取有效的会员卡状态标签类型（考虑余额）
+const getEffectiveCardStatusTagType = (card) => {
+  // 如果余额为0，使用 info 类型
+  if (new Decimal(card.balance).isZero()) {
+    return 'info';
+  }
+  // 否则使用原始状态对应的类型
+  return cardStatusTagType(card.status);
+};
+
+// 计算属性：所有有效的会员卡（余额 > 0）
+const activeCards = computed(() => {
+  if (!member.value?.cards) return [];
+  return member.value.cards.filter(card => 
+    new Decimal(card.balance).greaterThan(0) && card.status === 'ACTIVE'
+  );
+});
+
+// 计算属性：所有余额已用尽的会员卡（余额 = 0）
+const depletedCards = computed(() => {
+  if (!member.value?.cards) return [];
+  return member.value.cards.filter(card => 
+    new Decimal(card.balance).isZero()
+  );
+});
+
+// 计算属性：当前可见的会员卡
+const visibleCards = computed(() => {
+  const visibleDepletedCards = depletedCards.value.slice(0, depletedCardsOffset.value);
+  return [...activeCards.value, ...visibleDepletedCards];
+});
+
+// 计算属性：是否还有更多余额已用尽的会员卡可加载
+const hasMoreDepletedCards = computed(() => {
+  return depletedCardsOffset.value < depletedCards.value.length;
+});
+
+// 计算属性：剩余的余额已用尽会员卡数量
+const remainingDepletedCardsCount = computed(() => {
+  return depletedCards.value.length - depletedCardsOffset.value;
+});
+
+// 加载更多余额已用尽的会员卡
+const loadMoreDepletedCards = async () => {
+  loadingMoreCards.value = true;
+  
+  // 模拟网络延迟
+  await new Promise(resolve => setTimeout(resolve, 300));
+  
+  // 增加偏移量，每次加载5张
+  depletedCardsOffset.value = Math.min(
+    depletedCardsOffset.value + depletedCardsPageSize,
+    depletedCards.value.length
+  );
+  
+  loadingMoreCards.value = false;
+};
 
 defineExpose({ open });
 </script>

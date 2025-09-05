@@ -35,15 +35,18 @@
         <el-table-column label="会员卡" width="120" align="center">
           <template #default="{ row }">
             <div @click.stop="handleCardManagement(row)" class="card-cell-content">
-              <el-badge 
-                :value="row._count.cards" 
-                class="card-badge" 
-                :hidden="row._count.cards === 0"
-              >
-                <el-tag :type="row._count.cards > 0 ? 'warning' : 'info'" class="card-tag">
-                  {{ row._count.cards > 0 ? '有卡' : '无卡' }}
+              <div v-if="getCardStats(row).totalCount > 0" class="card-display">
+                <el-icon class="card-icon"><CreditCard /></el-icon>
+                <el-tag type="warning" size="small" class="card-tag">
+                  有卡 <span class="active-count">{{ getCardStats(row).activeCount }}</span> / <span class="total-count">{{ getCardStats(row).totalCount }}</span>
                 </el-tag>
-              </el-badge>
+              </div>
+              <div v-else class="card-display">
+                <el-icon class="card-icon"><CreditCard /></el-icon>
+                <el-tag type="info" size="small" class="card-tag">
+                  无卡
+                </el-tag>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -109,7 +112,7 @@
 import { ref, reactive, onMounted, watch, computed } from 'vue';
 import { useBreakpoints } from '@vueuse/core';
 import { getMembers } from '@/api/member.js';
-import { Plus, Edit, Search } from '@element-plus/icons-vue'; 
+import { Plus, Edit, Search, CreditCard } from '@element-plus/icons-vue'; 
 import MemberForm from '@/components/MemberForm.vue';
 import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
 // 优化点5: 引入通用格式化函数
@@ -194,7 +197,22 @@ const paginationLayout = computed(() => {
     : 'total, sizes, prev, pager, next, jumper';
 });
 
-// --- 辅助函数 (本地函数已移除, 改用通用函数) ---
+// --- 辅助函数 ---
+const getCardStats = (member) => {
+  if (!member._count || !member.cards) {
+    return { activeCount: 0, totalCount: 0 };
+  }
+  
+  // 计算有效卡数量（余额 > 0 且状态为 ACTIVE）
+  const activeCount = member.cards.filter(card => 
+    card.status === 'ACTIVE' && parseFloat(card.balance) > 0
+  ).length;
+  
+  return {
+    activeCount,
+    totalCount: member._count.cards
+  };
+};
 </script>
 
 <style scoped>
@@ -238,7 +256,26 @@ const paginationLayout = computed(() => {
 .card-cell-content {
   cursor: pointer;
 }
-.card-badge {
-  transform: translateY(-2px);
+.card-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.card-tag {
+  font-size: 12px;
+  border-radius: 4px;
+}
+.card-icon {
+  font-size: 16px;
+  color: #E6A23C;
+}
+.active-count {
+  color: inherit;
+  font-weight: bold;
+}
+.total-count {
+  color: inherit;
+  font-weight: normal;
 }
 </style>
