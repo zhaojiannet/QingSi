@@ -9,6 +9,154 @@ const roundToTwoDecimals = (value) => {
   return Math.round(value * 100) / 100;
 };
 
+// 智能卡片支付处理函数
+async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes) {
+  // 获取会员的所有有效卡片
+  const memberCards = await prisma.card.findMany({
+    where: { 
+      memberId: memberId, 
+      status: 'ACTIVE',
+      balance: { gt: 0 }
+    },
+    include: { cardType: true },
+    orderBy: { balance: 'asc' } // 优先使用余额少的卡
+  });
+
+  if (memberCards.length === 0) {
+    return reply.code(400).send({ message: '该会员没有可用的会员卡' });
+  }
+
+  // 计算消费总额
+  const uniqueServiceIds = [...new Set(serviceIds)];
+  const services = await prisma.service.findMany({ where: { id: { in: uniqueServiceIds } } });
+  
+  if (services.length !== uniqueServiceIds.length) {
+    return reply.code(404).send({ message: '一个或多个服务项目不存在' });
+  }
+
+  // 计算服务数量和金额
+  const serviceQuantities = {};
+  serviceIds.forEach(id => {
+    serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+  });
+
+  const totalAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+    const service = services.find(s => s.id === serviceId);
+    const quantity = serviceQuantities[serviceId];
+    return sum.plus(new Decimal(service.standardPrice).times(quantity));
+  }, new Decimal(0));
+
+  // 选择首选卡：余额少的优先（清空小额卡策略）
+  // memberCards 已按 balance asc 排序，取第一张有余额的卡
+  const preferredCard = memberCards[0];
+
+  // 尝试用首选卡（余额最少的卡）支付
+  const cardBalance = new Decimal(preferredCard.balance);
+  const discountRate = new Decimal(preferredCard.cardType.discountRate);
+  const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
+  
+  if (maxOriginalAmountThisCardCanCover.greaterThanOrEqualTo(totalAmount)) {
+    // 首选卡余额够，使用单卡支付
+    request.body.cardId = preferredCard.id;
+    return undefined; // 让调用方继续执行主流程
+  }
+
+  // 首选卡余额不够，使用多卡组合支付
+
+  let remainingAmountToPay = totalAmount;
+  let actualPaidTotal = new Decimal(0);
+  const paymentDetails = [];
+
+  // 使用多卡最优支付算法
+  for (const card of memberCards) {
+    if (remainingAmountToPay.isZero()) break;
+    
+    const cardBalance = new Decimal(card.balance);
+    const discountRate = new Decimal(card.cardType.discountRate);
+    
+    // 计算这张卡能承担的金额
+    const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
+    const amountToCoverByThisCard = Decimal.min(remainingAmountToPay, maxOriginalAmountThisCardCanCover);
+    const deduction = amountToCoverByThisCard.times(discountRate);
+    
+    if (deduction.greaterThan(0)) {
+      remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
+      actualPaidTotal = actualPaidTotal.plus(deduction);
+      paymentDetails.push({
+        cardId: card.id,
+        cardName: card.cardType.name,
+        originalAmountCovered: amountToCoverByThisCard.toNumber(),
+        actualPaid: deduction.toNumber(),
+        discountAmount: amountToCoverByThisCard.minus(deduction).toNumber(),
+        newBalance: cardBalance.minus(deduction).toNumber()
+      });
+    }
+  }
+
+  if (!remainingAmountToPay.isZero()) {
+    return reply.code(400).send({ message: '所有会员卡余额不足' });
+  }
+
+  // 执行多卡支付事务
+  const result = await prisma.$transaction(async (tx) => {
+    // 更新所有卡余额
+    for (const detail of paymentDetails) {
+      await tx.card.update({
+        where: { id: detail.cardId },
+        data: { balance: detail.newBalance }
+      });
+    }
+
+    // 更新会员最后访问时间
+    await tx.member.update({
+      where: { id: memberId },
+      data: { lastVisitDate: new Date() }
+    });
+
+    // 创建交易记录
+    const newTransaction = await tx.transaction.create({
+      data: {
+        id: generateId(),
+        memberId: memberId,
+        summary: '项目消费',
+        totalAmount: totalAmount.toNumber(),
+        actualPaidAmount: actualPaidTotal.toNumber(),
+        discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
+        paymentMethod: 'MEMBER_CARD',
+        cardId: null, // 多卡支付不关联单一卡片
+        notes: `多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${d.actualPaid}`).join(' + ')}`,
+        transactionTime: new Date()
+      }
+    });
+
+    // 创建交易明细
+    const transactionItems = Object.keys(serviceQuantities).map(serviceId => ({
+      id: generateId(),
+      transactionId: newTransaction.id,
+      serviceId: serviceId,
+      price: services.find(s => s.id === serviceId).standardPrice,
+      quantity: serviceQuantities[serviceId],
+    }));
+
+    await tx.transactionItem.createMany({
+      data: transactionItems
+    });
+
+    return { newTransaction, transactionItems, paymentDetails };
+  });
+
+  // 返回结果
+  return reply.send({
+    ...result.newTransaction,
+    items: result.transactionItems.map(item => ({
+      ...item,
+      service: services.find(s => s.id === item.serviceId)
+    })),
+    cardPayments: result.paymentDetails,
+    member: await prisma.member.findUnique({ where: { id: memberId } })
+  });
+}
+
 export default async function (fastify, opts) {
 
   // --- 创建一笔新消费 (手动选卡或非会员) ---
@@ -18,17 +166,45 @@ export default async function (fastify, opts) {
       staffId,
       serviceIds,
       paymentMethod,
-      cardId,
       notes,
       appointmentId,
       manualPriceAdjustment,
     } = request.body;
+    
+    let cardId = request.body.cardId; // 使用let以便后续可以重新赋值
 
     if (!serviceIds || !serviceIds.length || !paymentMethod) {
       return reply.code(400).send({ message: '缺少必要参数：服务项目、支付方式' });
     }
-    if (paymentMethod === 'MEMBER_CARD' && (!memberId || !cardId)) {
-      return reply.code(400).send({ message: '使用会员卡支付时，必须提供会员ID和卡ID' });
+    if (paymentMethod === 'MEMBER_CARD' && !memberId) {
+      return reply.code(400).send({ message: '使用会员卡支付时，必须提供会员ID' });
+    }
+
+    // 验证会员是否存在
+    if (memberId) {
+      const member = await prisma.member.findUnique({ where: { id: memberId } });
+      if (!member) {
+        return reply.code(404).send({ message: '会员不存在' });
+      }
+    }
+
+    // 验证服务项目数量限制
+    if (serviceIds.length > 20) {
+      return reply.code(400).send({ message: '单次消费服务项目不能超过20个' });
+    }
+    
+    // 智能支付：如果是会员卡支付但未指定cardId，自动选择最优支付方式
+    if (paymentMethod === 'MEMBER_CARD' && !cardId) {
+      const smartPaymentResult = await handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes);
+      
+      // 如果是多卡支付或遇到错误，直接返回结果
+      if (smartPaymentResult !== undefined) {
+        return smartPaymentResult;
+      }
+      
+      // 如果是单卡支付，继续执行下面的流程（此时request.body.cardId已经被设置）
+      // 重新获取cardId值以便后续使用
+      cardId = request.body.cardId;
     }
 
       // 获取去重的服务ID列表
@@ -559,183 +735,5 @@ export default async function (fastify, opts) {
     };
   });
 
-  // --- 多卡联合支付接口（新逻辑：优先清空余额少的卡） ---
-  fastify.post('/multi-card', async (request, reply) => {
-    const {
-      memberId,
-      staffId,
-      serviceIds,
-      notes,
-      appointmentId,
-      manualPriceAdjustment,
-    } = request.body;
-
-    if (!serviceIds || !serviceIds.length || !memberId) {
-      return reply.code(400).send({ message: '缺少必要参数：会员ID、服务项目' });
-    }
-
-    try {
-      // 1. 获取服务信息
-      const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } });
-      if (services.length !== serviceIds.length) {
-        return reply.code(404).send({ message: '一个或多个服务项目不存在' });
-      }
-      
-      const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
-      
-      // 分离参加折扣和不参加折扣的服务
-      const discountableAmount = services
-        .filter(s => !s.noDiscount)
-        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
-      const noDiscountAmount = services
-        .filter(s => s.noDiscount)
-        .reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
-
-      // 2. 获取会员的有效卡片，按余额从小到大排序（优先清空小余额卡）
-      const memberCards = await prisma.card.findMany({
-        where: { 
-          memberId,
-          status: 'ACTIVE',
-          balance: { gt: 0 }
-        },
-        include: { cardType: true },
-        orderBy: { balance: 'asc' } // 关键修改：按余额升序排序
-      });
-
-      if (memberCards.length === 0) {
-        return reply.code(400).send({ message: '该会员没有可用的会员卡' });
-      }
-
-      // 3. 计算多卡最佳支付方案（新逻辑）
-      let remainingDiscountableAmount = discountableAmount;
-      let remainingNoDiscountAmount = noDiscountAmount;
-      let totalPaid = new Decimal(0);
-      const cardPayments = [];
-
-      for (const card of memberCards) {
-        if (remainingDiscountableAmount.isZero() && remainingNoDiscountAmount.isZero()) break;
-        
-        const cardBalance = new Decimal(card.balance);
-        const discountRate = new Decimal(card.cardType.discountRate);
-        let cardUsed = new Decimal(0);
-        let originalAmountCovered = new Decimal(0);
-        let discountAmountFromCard = new Decimal(0);
-
-        // 先支付无折扣服务（原价）
-        if (!remainingNoDiscountAmount.isZero()) {
-          const noDiscountPayment = Decimal.min(remainingNoDiscountAmount, cardBalance);
-          cardUsed = cardUsed.plus(noDiscountPayment);
-          originalAmountCovered = originalAmountCovered.plus(noDiscountPayment);
-          remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountPayment);
-        }
-        
-        // 再支付可折扣服务（打折价）
-        if (!remainingDiscountableAmount.isZero() && cardUsed.lessThan(cardBalance)) {
-          const remainingBalance = cardBalance.minus(cardUsed);
-          const maxDiscountableAmount = remainingBalance.div(discountRate);
-          const discountablePayment = Decimal.min(remainingDiscountableAmount, maxDiscountableAmount);
-          const discountableDeduction = discountablePayment.times(discountRate);
-          
-          // 四舍五入处理
-          const roundedDeduction = new Decimal(roundToTwoDecimals(discountableDeduction.toNumber()));
-          
-          cardUsed = cardUsed.plus(roundedDeduction);
-          originalAmountCovered = originalAmountCovered.plus(discountablePayment);
-          discountAmountFromCard = discountAmountFromCard.plus(discountablePayment.minus(roundedDeduction));
-          remainingDiscountableAmount = remainingDiscountableAmount.minus(discountablePayment);
-        }
-
-        if (originalAmountCovered.gt(0)) {
-          // 四舍五入处理最终扣款金额
-          const finalCardUsed = new Decimal(roundToTwoDecimals(cardUsed.toNumber()));
-          
-          totalPaid = totalPaid.plus(finalCardUsed);
-          cardPayments.push({
-            cardId: card.id,
-            cardName: card.cardType.name,
-            originalAmountCovered: roundToTwoDecimals(originalAmountCovered.toNumber()),
-            actualPaid: roundToTwoDecimals(finalCardUsed.toNumber()),
-            discountAmount: roundToTwoDecimals(discountAmountFromCard.toNumber()),
-            newBalance: roundToTwoDecimals(cardBalance.minus(finalCardUsed).toNumber())
-          });
-        }
-      }
-
-      // 检查是否能够完成支付
-      const totalRemaining = remainingDiscountableAmount.plus(remainingNoDiscountAmount);
-      if (!totalRemaining.isZero()) {
-        return reply.code(400).send({ 
-          message: `所有会员卡余额不足，还需支付: ¥${roundToTwoDecimals(totalRemaining.toNumber())}`,
-          cardPayments: cardPayments,
-          shortfall: roundToTwoDecimals(totalRemaining.toNumber())
-        });
-      }
-
-      // 4. 执行支付
-      const result = await prisma.$transaction(async (tx) => {
-        // 创建交易记录
-        const newTransaction = await tx.transaction.create({
-          data: {
-            id: generateId(),
-            memberId,
-            staffId: staffId || null,
-            summary: '项目消费',
-            totalAmount: roundToTwoDecimals(totalAmount.toNumber()),
-            actualPaidAmount: roundToTwoDecimals(totalPaid.toNumber()),
-            discountAmount: roundToTwoDecimals(totalAmount.minus(totalPaid).toNumber()),
-            paymentMethod: 'MEMBER_CARD',
-            notes: `多卡联合支付: ${cardPayments.map(p => `${p.cardName}¥${p.actualPaid}`).join(' + ')}${notes ? ` | ${notes}` : ''}`,
-            items: {
-              create: (() => {
-                const serviceQuantities = {};
-                serviceIds.forEach(id => {
-                  serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
-                });
-                return Object.keys(serviceQuantities).map(serviceId => ({
-                  id: generateId(),
-                  serviceId: serviceId,
-                  price: services.find(s => s.id === serviceId).standardPrice,
-                  quantity: serviceQuantities[serviceId],
-                }));
-              })(),
-            },
-            appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
-          },
-        });
-
-        // 更新各个卡片余额
-        for (const payment of cardPayments) {
-          await tx.card.update({
-            where: { id: payment.cardId },
-            data: { balance: payment.newBalance }
-          });
-        }
-
-        if (appointmentId) {
-          await tx.appointment.update({
-            where: { id: appointmentId },
-            data: { status: 'COMPLETED' }
-          });
-        }
-
-        return tx.transaction.findUnique({
-          where: { id: newTransaction.id },
-          include: { member: true, staff: true, items: { include: { service: true } } },
-        });
-      });
-
-      return {
-        ...result,
-        totalAmount: roundToTwoDecimals(parseFloat(result.totalAmount)),
-        actualPaidAmount: roundToTwoDecimals(parseFloat(result.actualPaidAmount)),
-        discountAmount: roundToTwoDecimals(parseFloat(result.discountAmount)),
-        cardPayments: cardPayments
-      };
-
-    } catch (error) {
-      console.error('多卡支付错误:', error);
-      return reply.code(500).send({ message: '支付处理失败' });
-    }
-  });
 
 }

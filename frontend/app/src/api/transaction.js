@@ -41,10 +41,19 @@ export const getComboCheckoutPreview = (data) => {
   });
 };
 
-// 多卡联合支付（新逻辑：优先清空余额少的卡）
+// 智能会员卡支付接口（自动选择最优支付方式：单卡或多卡组合）
+export const createSmartCardPayment = (data) => {
+  return request({
+    url: '/transactions',
+    method: 'post',
+    data,
+  });
+};
+
+// 兼容性：保留旧函数名，使用智能支付接口
 export const createMultiCardTransaction = (data) => {
   return request({
-    url: '/transactions/multi-card',
+    url: '/transactions',
     method: 'post',
     data,
   });

@@ -168,18 +168,18 @@
           <div class="summary">
             <div class="summary-item">
               <span>应付总额:</span>
-              <span>¥{{ totalAmount.toFixed(2) }}</span>
+              <span>¥{{ formatAmount(totalAmount) }}</span>
             </div>
             
             <div class="summary-item" v-if="displayDiscountAmount > 0">
               <span class="discount-label">总优惠:</span>
-              <span class="discount-text">- ¥{{ displayDiscountAmount.toFixed(2) }}</span>
+              <span class="discount-text">- ¥{{ formatAmount(displayDiscountAmount) }}</span>
             </div>
             
             <div class="summary-item total">
               <span>实付金额:</span>
               <div class="total-price-display">
-                <span class="total-price">¥{{ displayActualPaidAmount.toFixed(2) }}</span>
+                <span class="total-price">¥{{ formatAmount(displayActualPaidAmount) }}</span>
                 <div class="price-adjustment-controls">
                   <el-button 
                     text
@@ -293,16 +293,16 @@
                   {{ getMultiCardDetails(row) }}
                 </div>
               </div>
-              <!-- 单卡支付 -->
+              <!-- 单卡支付：有cardUsed信息 -->
               <div v-else-if="row.cardUsed">
                 <el-tag type="primary" size="small">
                   {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
                 </el-tag>
               </div>
-              <!-- 其他会员卡支付 -->
+              <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
               <div v-else>
-                <el-tag type="success" size="small">
-                  会员卡 ¥{{ row.discountAmount }}
+                <el-tag type="primary" size="small">
+                  {{ getSingleCardDiscountDisplay(row) }}
                 </el-tag>
               </div>
             </div>
@@ -312,7 +312,7 @@
         
         <el-table-column label="实付金额" width="90" align="right">
           <template #default="{ row }">
-            <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
+            <span class="paid-amount">¥{{ formatAmount(row.actualPaidAmount) }}</span>
           </template>
         </el-table-column>
         
@@ -1007,6 +1007,28 @@ const getCardDiscountDisplay = (discountRate) => {
   
   // 处理小数点，如6.5折
   return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
+};
+
+// 获取单卡支付的折扣显示（用于智能支付接口）
+const getSingleCardDiscountDisplay = (transaction) => {
+  // 计算折扣率：实付金额 / 应付金额
+  const totalAmount = parseFloat(transaction.totalAmount);
+  const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
+  
+  if (totalAmount > 0 && actualPaidAmount > 0) {
+    const discountRate = actualPaidAmount / totalAmount;
+    const discount = discountRate * 10;
+    const discountDisplay = discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
+    return `${discountDisplay}折 ¥${formatAmount(transaction.discountAmount)}`;
+  }
+  
+  return `会员卡 ¥${formatAmount(transaction.discountAmount)}`;
+};
+
+// 格式化金额到分（两位小数）
+const formatAmount = (amount) => {
+  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  return (Math.round(num * 100) / 100).toFixed(2);
 };
 
 // 获取单个服务的折扣信息文本
