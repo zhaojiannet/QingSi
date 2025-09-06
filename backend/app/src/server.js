@@ -24,6 +24,7 @@ import userRoutes from './routes/users.js';
 import configRoutes from './routes/configs.js';
 import cardRoutes from './routes/cards.js';
 import tokenCleaner from './utils/tokenCleaner.js';
+import { timezonePlugin } from './utils/timezone.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -49,7 +50,7 @@ fastify.register(fastifyCors, {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Timezone']
 });
 
 // 安全头配置
@@ -70,6 +71,9 @@ fastify.register(fastifyHelmet, {
   crossOriginEmbedderPolicy: false, // 根据需要调整
 });
 fastify.register(fastifyCookie);
+
+// 注册时区处理插件
+fastify.register(timezonePlugin);
 
 // Session配置 - 基于环境的安全设置
 const isProduction = process.env.NODE_ENV === 'production';

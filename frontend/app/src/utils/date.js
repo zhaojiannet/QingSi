@@ -1,18 +1,19 @@
 // frontend/app/src/utils/date.js
+// 统一使用时区检测系统，避免硬编码
 
-// 设定整个应用的基准时区，确保所有用户看到的时间都是一致的
-const appTimeZone = 'Asia/Shanghai';
+import { getUserTimezone, formatDate } from './timezone-unified';
 
 /**
- * 使用应用的基准时区来格式化日期和时间。
- * @param {string | Date} isoString - 从后端获取的ISO 8601格式的UTC时间字符串或Date对象。
- * @param {object} options - Intl.DateTimeFormat的额外选项。
- * @returns {string} 格式化后的本地化时间字符串。
+ * 使用统一时区系统格式化日期和时间
+ * @param {string | Date} isoString - ISO时间字符串或Date对象
+ * @param {object} options - 格式化选项
+ * @returns {string} 格式化后的时间字符串
  */
 export function formatInAppTimeZone(isoString, options = {}) {
   if (!isoString) return '无记录';
+  
   const date = new Date(isoString);
-  // 使用Intl API，无需额外依赖
+  // 使用统一的时区检测
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -21,15 +22,13 @@ export function formatInAppTimeZone(isoString, options = {}) {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-    timeZone: appTimeZone,
+    timeZone: getUserTimezone(),
     ...options
   }).format(date);
 }
 
 /**
- * 仅格式化日期部分。
- * @param {string | Date} isoString - 从后端获取的ISO 8601格式的UTC时间字符串或Date对象。
- * @returns {string} 格式化后的本地化日期字符串 (YYYY/MM/DD)。
+ * 仅格式化日期部分 - 统一时区
  */
 export function formatDateInAppTimeZone(isoString) {
   if (!isoString) return '无记录';
@@ -38,14 +37,12 @@ export function formatDateInAppTimeZone(isoString) {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    timeZone: appTimeZone
+    timeZone: getUserTimezone()
   }).format(date);
 }
 
 /**
- * 仅格式化时间部分。
- * @param {string | Date} isoString - 从后端获取的ISO 8601格式的UTC时间字符串或Date对象。
- * @returns {string} 格式化后的本地化时间字符串 (HH:mm)。
+ * 仅格式化时间部分 - 统一时区
  */
 export function formatTimeInAppTimeZone(isoString) {
     if (!isoString) return '';
@@ -54,14 +51,12 @@ export function formatTimeInAppTimeZone(isoString) {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-        timeZone: appTimeZone
+        timeZone: getUserTimezone()
     }).format(date);
 }
 
 /**
- * 格式化为统计页面使用的简短日期格式 (YYYY/MM/DD)
- * @param {string | Date} isoString - 从后端获取的ISO 8601格式的UTC时间字符串或Date对象。
- * @returns {string} 格式化后的简短日期字符串 (YYYY/MM/DD)。
+ * 格式化短日期 - 统一时区
  */
 export function formatShortDateInAppTimeZone(isoString) {
     if (!isoString) return '无记录';
@@ -70,14 +65,12 @@ export function formatShortDateInAppTimeZone(isoString) {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
-        timeZone: appTimeZone
-    }).format(date).replace(/\//g, '/'); // 确保使用斜杠分隔
+        timeZone: getUserTimezone()
+    }).format(date).replace(/\//g, '/');
 }
 
 /**
- * 格式化为完整的日期时间格式，用于tooltip显示 (YYYY/MM/DD HH:mm:ss)
- * @param {string | Date} isoString - 从后端获取的ISO 8601格式的UTC时间字符串或Date对象。
- * @returns {string} 格式化后的完整日期时间字符串。
+ * 格式化完整日期时间 - 统一时区
  */
 export function formatFullDateTimeInAppTimeZone(isoString) {
     if (!isoString) return '无记录';
@@ -90,9 +83,8 @@ export function formatFullDateTimeInAppTimeZone(isoString) {
         minute: '2-digit',
         second: '2-digit',
         hour12: false,
-        timeZone: appTimeZone
+        timeZone: getUserTimezone()
     }).format(date);
     
-    // 将格式从 "YYYY/MM/DD HH:mm:ss" 调整为所需格式
     return formatted.replace(/\//g, '/');
 }

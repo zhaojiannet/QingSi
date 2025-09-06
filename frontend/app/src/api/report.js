@@ -12,26 +12,29 @@ export const getBusinessReport = (params) => {
 };
 
 // 获取项目销售排行榜
-export const getServiceRanking = () => {
+export const getServiceRanking = (params) => {
   return request({
     url: '/reports/service-ranking',
     method: 'get',
+    params, // { page, limit }
   });
 };
 
 // 获取沉睡会员列表
-export const getSleepingMembers = () => {
+export const getSleepingMembers = (params) => {
   return request({
     url: '/reports/sleeping-members',
     method: 'get',
+    params, // { page, limit }
   });
 };
 
 // --- 新增1：获取会员消费排行 ---
-export const getMemberRanking = () => {
+export const getMemberRanking = (params) => {
     return request({
       url: '/reports/member-ranking',
       method: 'get',
+      params, // { page, limit }
     });
 };
 

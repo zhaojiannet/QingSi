@@ -231,12 +231,26 @@
       
       <!-- 项目消费排行 -->
       <el-tab-pane label="项目消费排行" name="serviceRanking">
-         <el-table :data="serviceRanking.data" v-loading="serviceRanking.loading" stripe>
+         <el-table :data="serviceRanking.data" v-loading="serviceRanking.loading" stripe max-height="600">
            <el-table-column type="index" label="排名" width="80" />
            <el-table-column prop="serviceName" label="项目名称" />
            <el-table-column prop="totalSales" label="销售总额(元)" align="right" sortable />
            <el-table-column prop="totalCount" label="销售数量" align="center" sortable />
          </el-table>
+         <div class="pagination-section" v-if="serviceRanking.data.length > 0">
+           <div class="load-more-container">
+             <el-button 
+               v-if="serviceRanking.hasMore" 
+               @click="loadMoreServiceRanking" 
+               :loading="serviceRanking.loadingMore"
+               type="primary"
+               size="default"
+             >
+               加载更多
+             </el-button>
+             <div v-else class="all-loaded">已加载全部数据</div>
+           </div>
+         </div>
       </el-tab-pane>
 
       <!-- 会员消费排行 -->
@@ -247,6 +261,20 @@
            <el-table-column prop="memberPhone" label="手机号" />
            <el-table-column prop="totalConsumption" label="消费总额(元)" align="right" sortable />
         </el-table>
+        <div class="pagination-section" v-if="memberRanking.data.length > 0">
+          <div class="load-more-container">
+            <el-button 
+              v-if="memberRanking.hasMore" 
+              @click="loadMoreMemberRanking" 
+              :loading="memberRanking.loadingMore"
+              type="primary"
+              size="default"
+            >
+              加载更多
+            </el-button>
+            <div v-else class="all-loaded">已加载全部数据</div>
+          </div>
+        </div>
       </el-tab-pane>
 
       <!-- 生日提醒 -->
@@ -309,11 +337,25 @@
            </el-table-column>
            <el-table-column prop="lastVisitDate" label="最后消费日期">
              <template #default="{ row }">
-                <span v-if="row.lastVisitDate">{{ formatDateInAppTimeZone(row.lastVisitDate) }}</span>
-                <span v-else>无消费记录</span>
+                <span v-if="isValidDate(row.lastVisitDate)">{{ formatDateInAppTimeZone(row.lastVisitDate) }}</span>
+                <span v-else class="text-muted">无消费记录</span>
              </template>
            </el-table-column>
         </el-table>
+        <div class="pagination-section" v-if="sleepingMembers.data.length > 0">
+          <div class="load-more-container">
+            <el-button 
+              v-if="sleepingMembers.hasMore" 
+              @click="loadMoreSleepingMembers" 
+              :loading="sleepingMembers.loadingMore"
+              type="primary"
+              size="default"
+            >
+              加载更多
+            </el-button>
+            <div v-else class="all-loaded">已加载全部数据</div>
+          </div>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -359,7 +401,7 @@ const transactionList = reactive({
   data: [],
   pagination: {
     page: 1,
-    limit: 50,
+    limit: 25,
     total: 0,
     hasMore: true
   },
@@ -375,10 +417,28 @@ const cardSalesSummary = reactive({
   data: [],
   chartOption: null,
 });
-const serviceRanking = reactive({ loading: false, data: [] });
-const memberRanking = reactive({ loading: false, data: [] });
+const serviceRanking = reactive({ 
+  loading: false, 
+  loadingMore: false,
+  data: [], 
+  page: 1, 
+  hasMore: false 
+});
+const memberRanking = reactive({ 
+  loading: false, 
+  loadingMore: false,
+  data: [], 
+  page: 1, 
+  hasMore: false 
+});
 const birthdayReminders = reactive({ loading: false, data: [] });
-const sleepingMembers = reactive({ loading: false, data: [] });
+const sleepingMembers = reactive({ 
+  loading: false, 
+  loadingMore: false,
+  data: [], 
+  page: 1, 
+  hasMore: false 
+});
 
 // --- 会员搜索和过滤 ---
 // 现在直接显示服务器端返回的数据，不需要前端过滤
@@ -688,6 +748,16 @@ const getAverageDiscountDisplay = (transaction) => {
   return avgDiscount % 1 === 0 ? Math.round(avgDiscount) : avgDiscount.toFixed(1);
 };
 
+// 检查日期值是否有效（用于沉睡会员显示）
+const isValidDate = (date) => {
+  return date && 
+         date !== null && 
+         date !== '' && 
+         date !== 'null' && 
+         date !== 'undefined' &&
+         !isNaN(new Date(date).getTime());
+};
+
 // 获取多卡支付详情
 const getMultiCardDetails = (transaction) => {
   if (!transaction.notes) return '';
@@ -779,19 +849,47 @@ const fetchCardSalesSummary = async () => {
   }
 };
 
-const fetchServiceRanking = async () => {
-  serviceRanking.loading = true;
+const fetchServiceRanking = async (reset = true) => {
+  if (reset) {
+    serviceRanking.loading = true;
+    serviceRanking.page = 1;
+    serviceRanking.data = [];
+  }
+  
   try {
-    serviceRanking.data = await getServiceRanking();
+    const params = { page: serviceRanking.page, limit: 25 };
+    const response = await getServiceRanking(params);
+    
+    if (reset) {
+      serviceRanking.data = response.data || [];
+    } else {
+      serviceRanking.data.push(...(response.data || []));
+    }
+    
+    serviceRanking.hasMore = response.pagination?.hasMore || false;
   } finally {
     serviceRanking.loading = false;
   }
 };
 
-const fetchMemberRanking = async () => {
-  memberRanking.loading = true;
+const fetchMemberRanking = async (reset = true) => {
+  if (reset) {
+    memberRanking.loading = true;
+    memberRanking.page = 1;
+    memberRanking.data = [];
+  }
+  
   try {
-    memberRanking.data = await getMemberRanking();
+    const params = { page: memberRanking.page, limit: 25 };
+    const response = await getMemberRanking(params);
+    
+    if (reset) {
+      memberRanking.data = response.data || [];
+    } else {
+      memberRanking.data.push(...(response.data || []));
+    }
+    
+    memberRanking.hasMore = response.pagination?.hasMore || false;
   } finally {
     memberRanking.loading = false;
   }
@@ -806,10 +904,24 @@ const fetchBirthdayReminders = async () => {
   }
 };
 
-const fetchSleepingMembers = async () => {
-  sleepingMembers.loading = true;
+const fetchSleepingMembers = async (reset = true) => {
+  if (reset) {
+    sleepingMembers.loading = true;
+    sleepingMembers.page = 1;
+    sleepingMembers.data = [];
+  }
+  
   try {
-    sleepingMembers.data = await getSleepingMembers();
+    const params = { page: sleepingMembers.page, limit: 25 };
+    const response = await getSleepingMembers(params);
+    
+    if (reset) {
+      sleepingMembers.data = response.data || [];
+    } else {
+      sleepingMembers.data.push(...(response.data || []));
+    }
+    
+    sleepingMembers.hasMore = response.pagination?.hasMore || false;
   } finally {
     sleepingMembers.loading = false;
   }
@@ -922,6 +1034,46 @@ watch(activeTab, (newTab) => {
     scrollCleanup = null;
   }
 });
+
+// --- 加载更多函数 ---
+const loadMoreServiceRanking = async () => {
+  if (serviceRanking.loadingMore || !serviceRanking.hasMore) return;
+  
+  serviceRanking.loadingMore = true;
+  serviceRanking.page++;
+  
+  try {
+    await fetchServiceRanking(false);
+  } finally {
+    serviceRanking.loadingMore = false;
+  }
+};
+
+const loadMoreMemberRanking = async () => {
+  if (memberRanking.loadingMore || !memberRanking.hasMore) return;
+  
+  memberRanking.loadingMore = true;
+  memberRanking.page++;
+  
+  try {
+    await fetchMemberRanking(false);
+  } finally {
+    memberRanking.loadingMore = false;
+  }
+};
+
+const loadMoreSleepingMembers = async () => {
+  if (sleepingMembers.loadingMore || !sleepingMembers.hasMore) return;
+  
+  sleepingMembers.loadingMore = true;
+  sleepingMembers.page++;
+  
+  try {
+    await fetchSleepingMembers(false);
+  } finally {
+    sleepingMembers.loadingMore = false;
+  }
+};
 </script>
 
 <style scoped>

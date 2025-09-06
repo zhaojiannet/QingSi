@@ -107,11 +107,6 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
       });
     }
 
-    // 更新会员最后访问时间
-    await tx.member.update({
-      where: { id: memberId },
-      data: { lastVisitDate: new Date() }
-    });
 
     // 创建交易记录
     const newTransaction = await tx.transaction.create({
@@ -295,12 +290,6 @@ export default async function (fastify, opts) {
           });
         }
         
-        if (memberId) {
-          await tx.member.update({
-            where: { id: memberId },
-            data: { lastVisitDate: new Date() }
-          });
-        }
 
         const newTransaction = await tx.transaction.create({
           data: {
@@ -441,8 +430,6 @@ export default async function (fastify, opts) {
             data: { balance: { decrement: detail.deduction } },
           });
         }
-        
-        await tx.member.update({ where: { id: memberId }, data: { lastVisitDate: new Date() } });
 
         const newTransaction = await tx.transaction.create({
             data: {
@@ -735,5 +722,42 @@ export default async function (fastify, opts) {
     };
   });
 
+  // 删除交易记录接口
+  fastify.delete('/:transactionId', async (request, reply) => {
+    const { transactionId } = request.params;
+    
+    try {
+      // 检查交易记录是否存在
+      const transaction = await prisma.transaction.findUnique({
+        where: { id: transactionId },
+        include: { 
+          member: { select: { name: true } },
+          items: { include: { service: { select: { name: true } } } }
+        }
+      });
+      
+      if (!transaction) {
+        return reply.code(404).send({ message: '交易记录不存在' });
+      }
+      
+      // 删除交易记录（会级联删除相关的交易项目）
+      await prisma.transaction.delete({
+        where: { id: transactionId }
+      });
+      
+      return { 
+        message: '交易记录删除成功',
+        deletedTransaction: {
+          id: transaction.id,
+          memberName: transaction.member?.name,
+          totalAmount: transaction.totalAmount,
+          transactionTime: transaction.transactionTime
+        }
+      };
+      
+    } catch (error) {
+      return reply.code(500).send({ message: '删除交易记录失败', error: error.message });
+    }
+  });
 
 }

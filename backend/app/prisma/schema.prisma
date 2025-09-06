@@ -14,7 +14,6 @@ model Member {
   gender           Gender?       @default(UNKNOWN)
   birthday         DateTime?
   registrationDate DateTime      @default(now())
-  lastVisitDate    DateTime?
   status           MemberStatus  @default(ACTIVE)
   notes            String?       @db.Text
   appointments     Appointment[]

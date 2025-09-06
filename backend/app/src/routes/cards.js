@@ -43,15 +43,45 @@ export default async function (fastify, opts) {
           },
         });
         
-        await tx.member.update({
-          where: { id: memberId },
-          data: { lastVisitDate: new Date() },
-        });
 
         return { newCard };
       });
 
       return result;
+  });
+
+  // 删除会员卡接口
+  fastify.delete('/:cardId', async (request, reply) => {
+    const { cardId } = request.params;
+    
+    try {
+      // 检查会员卡是否存在
+      const card = await prisma.card.findUnique({
+        where: { id: cardId },
+        include: { cardType: true }
+      });
+      
+      if (!card) {
+        return reply.code(404).send({ message: '会员卡不存在' });
+      }
+      
+      // 删除会员卡
+      await prisma.card.delete({
+        where: { id: cardId }
+      });
+      
+      return { 
+        message: '会员卡删除成功',
+        deletedCard: {
+          id: card.id,
+          cardTypeName: card.cardType.name,
+          balance: card.balance
+        }
+      };
+      
+    } catch (error) {
+      return reply.code(500).send({ message: '删除会员卡失败', error: error.message });
+    }
   });
 
 }

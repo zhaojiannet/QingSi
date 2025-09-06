@@ -4,6 +4,7 @@ import axios from 'axios';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';
 import { refreshToken as refreshTokenApi } from './auth';
+import { setTimezoneHeader } from '@/utils/timezone-unified';
 
 const service = axios.create({ 
   baseURL: '/api', 
@@ -14,10 +15,17 @@ const service = axios.create({
 service.interceptors.request.use(
   (config) => {
     const userStore = useUserStore();
-    // 确保只在有 accessToken 时才添加请求头
+    
+    // 确保只在有 accessToken 时才添加Authorization请求头
     if (userStore.accessToken && config.headers) {
       config.headers.Authorization = `Bearer ${userStore.accessToken}`;
     }
+    
+    // 自动为所有请求添加时区头信息
+    if (config.headers) {
+      setTimezoneHeader(config.headers);
+    }
+    
     return config;
   },
   (error) => {

@@ -35,61 +35,169 @@ export default async function (fastify, opts) {
 
   // 项目销售排行榜
   fastify.get('/service-ranking', async (request, reply) => {
+    const page = parseInt(request.query.page) || 1;
+    const limit = parseInt(request.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
     const result = await prisma.transactionItem.groupBy({
       by: ['serviceId'],
       _sum: { price: true },
       _count: { _all: true },
       orderBy: { _sum: { price: 'desc' } },
+      skip,
+      take: limit,
     });
+
+    // 获取总数
+    const totalResult = await prisma.transactionItem.groupBy({
+      by: ['serviceId'],
+      _count: { _all: true },
+    });
+    const total = totalResult.length;
+
     const serviceIds = result.map(item => item.serviceId);
     const services = await prisma.service.findMany({
       where: { id: { in: serviceIds } },
       select: { id: true, name: true }
     });
     const serviceMap = new Map(services.map(s => [s.id, s.name]));
-    return result.map(item => ({
+    
+    const data = result.map(item => ({
       serviceId: item.serviceId,
       serviceName: serviceMap.get(item.serviceId) || '未知服务',
       totalSales: new Decimal(item._sum.price).toFixed(2),
       totalCount: item._count._all,
     }));
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total
+      }
+    };
   });
 
-  // 沉睡会员报表
+  // 沉睡会员报表 - 基于Transaction表动态计算，避免lastVisitDate不同步问题
   fastify.get('/sleeping-members', async (request, reply) => {
+    const page = parseInt(request.query.page) || 1;
+    const limit = parseInt(request.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    return await prisma.member.findMany({
-      where: {
-        OR: [{ lastVisitDate: null }, { lastVisitDate: { lt: ninetyDaysAgo } }],
-        status: 'ACTIVE',
-      },
-      select: { id: true, name: true, phone: true, lastVisitDate: true, registrationDate: true },
-      orderBy: { lastVisitDate: 'asc' }
-    });
+    
+    // 使用原生SQL查询获取真正的沉睡会员
+    const sleepingMembers = await prisma.$queryRaw`
+      SELECT 
+        m.id,
+        m.name,
+        m.phone,
+        m.registrationDate,
+        COALESCE(latest_transaction.lastVisitDate, NULL) as lastVisitDate
+      FROM Member m
+      LEFT JOIN (
+        SELECT 
+          memberId,
+          MAX(transactionTime) as lastVisitDate
+        FROM Transaction 
+        WHERE memberId IS NOT NULL
+        GROUP BY memberId
+      ) latest_transaction ON m.id = latest_transaction.memberId
+      WHERE 
+        m.status = 'ACTIVE' AND
+        (
+          latest_transaction.lastVisitDate IS NULL OR 
+          latest_transaction.lastVisitDate < ${ninetyDaysAgo}
+        )
+      ORDER BY COALESCE(latest_transaction.lastVisitDate, m.registrationDate) ASC
+      LIMIT ${limit} OFFSET ${skip}
+    `;
+
+    // 获取总数
+    const totalResult = await prisma.$queryRaw`
+      SELECT COUNT(*) as count
+      FROM Member m
+      LEFT JOIN (
+        SELECT 
+          memberId,
+          MAX(transactionTime) as lastVisitDate
+        FROM Transaction 
+        WHERE memberId IS NOT NULL
+        GROUP BY memberId
+      ) latest_transaction ON m.id = latest_transaction.memberId
+      WHERE 
+        m.status = 'ACTIVE' AND
+        (
+          latest_transaction.lastVisitDate IS NULL OR 
+          latest_transaction.lastVisitDate < ${ninetyDaysAgo}
+        )
+    `;
+    
+    const total = Number(totalResult[0].count);
+
+    return {
+      data: sleepingMembers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total
+      }
+    };
   });
 
   // 会员消费排行榜
   fastify.get('/member-ranking', async (request, reply) => {
+    const page = parseInt(request.query.page) || 1;
+    const limit = parseInt(request.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
     const memberConsumptions = await prisma.transaction.groupBy({
       by: ['memberId'],
       _sum: { actualPaidAmount: true },
       where: { memberId: { not: null } },
       orderBy: { _sum: { actualPaidAmount: 'desc' } },
-      take: 100, // 100名成员
+      skip,
+      take: limit,
     });
+
+    // 获取总数
+    const totalResult = await prisma.transaction.groupBy({
+      by: ['memberId'],
+      where: { memberId: { not: null } },
+      _count: { _all: true },
+    });
+    const total = totalResult.length;
+
     const memberIds = memberConsumptions.map(m => m.memberId);
     const members = await prisma.member.findMany({
       where: { id: { in: memberIds } },
       select: { id: true, name: true, phone: true }
     });
     const memberMap = new Map(members.map(m => [m.id, m]));
-    return memberConsumptions.map(item => ({
+    
+    const data = memberConsumptions.map(item => ({
       memberId: item.memberId,
       memberName: memberMap.get(item.memberId)?.name || '未知会员',
       memberPhone: memberMap.get(item.memberId)?.phone || '',
       totalConsumption: new Decimal(item._sum.actualPaidAmount).toFixed(2),
     }));
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total
+      }
+    };
   });
 
   // --- 核心修改：生日提醒接口，增加消费排名 ---
@@ -177,8 +285,10 @@ export default async function (fastify, opts) {
     // 映射为更友好的名称
     const paymentMethodMap = {
       CASH: '现金',
-      WECHAT_PAY: '微信支付',
+      WECHAT_PAY: '微信',
       ALIPAY: '支付宝',
+      DOUYIN: '抖音',
+      MEITUAN: '美团',
       MEMBER_CARD: '会员卡',
       CARD_SWIPE: '刷卡',
       OTHER: '其他',
