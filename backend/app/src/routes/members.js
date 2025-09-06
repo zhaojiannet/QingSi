@@ -122,11 +122,6 @@ export default async function (fastify, opts) {
           );
           return { ...member, totalBalance: totalBalance.toNumber() };
         } else {
-          // 计算有效卡数量（余额 > 0 且状态为 ACTIVE）
-          const activeCardCount = member.cards.filter(card => 
-            card.status === 'ACTIVE' && new Decimal(card.balance).greaterThan(0)
-          ).length;
-          
           // 保留原有格式，前端会处理卡片统计
           return member;
         }
