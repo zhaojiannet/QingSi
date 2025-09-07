@@ -352,5 +352,108 @@ export default async function (fastify, opts) {
     return summary.sort((a, b) => b.value - a.value);
   });
 
+  // --- 挂账统计报表 ---
+  fastify.get('/pending-stats', async (request, reply) => {
+    const page = parseInt(request.query.page) || 1;
+    const limit = parseInt(request.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
+    try {
+      // 获取挂账统计数据和汇总信息
+      const [pendingStats, totalStats] = await prisma.$transaction([
+        // 获取有挂账的会员详细信息
+        prisma.member.findMany({
+          where: {
+            pendingPayments: {
+              some: {}
+            }
+          },
+          skip,
+          take: limit,
+          include: {
+            pendingPayments: {
+              orderBy: {
+                createdAt: 'desc'
+              }
+            }
+          },
+          orderBy: [
+            {
+              pendingPayments: {
+                _count: 'desc'
+              }
+            },
+            {
+              name: 'asc'
+            }
+          ]
+        }),
+        // 获取总体统计信息
+        prisma.pendingPayment.aggregate({
+          _sum: {
+            amount: true
+          },
+          _count: {
+            id: true
+          }
+        })
+      ]);
+
+      // 处理数据，计算每个会员的挂账信息
+      const processedData = pendingStats.map(member => {
+        const totalPending = member.pendingPayments.reduce(
+          (sum, payment) => sum.plus(new Decimal(payment.amount)),
+          new Decimal(0)
+        );
+        
+        const recordCount = member.pendingPayments.length;
+        const earliestDate = member.pendingPayments[recordCount - 1]?.createdAt;
+        const latestDate = member.pendingPayments[0]?.createdAt;
+
+        return {
+          id: member.id,
+          name: member.name,
+          phone: member.phone,
+          totalPending: totalPending.toNumber(),
+          recordCount,
+          earliestDate,
+          latestDate,
+          payments: member.pendingPayments
+        };
+      });
+
+      // 获取总会员数（有挂账的）
+      const memberCount = await prisma.member.count({
+        where: {
+          pendingPayments: {
+            some: {}
+          }
+        }
+      });
+
+      // 计算汇总信息
+      const summary = {
+        totalAmount: totalStats._sum.amount ? new Decimal(totalStats._sum.amount).toNumber() : 0,
+        recordCount: totalStats._count.id || 0,
+        memberCount: memberCount,
+        averageAmount: memberCount > 0 
+          ? new Decimal(totalStats._sum.amount || 0).div(memberCount).toNumber() 
+          : 0
+      };
+
+      return {
+        data: processedData,
+        total: memberCount,
+        page,
+        limit,
+        hasMore: (page * limit) < memberCount,
+        summary
+      };
+    } catch (error) {
+      fastify.log.error('获取挂账统计失败:', error);
+      return reply.code(500).send({ message: '获取挂账统计失败' });
+    }
+  });
+
 
 }

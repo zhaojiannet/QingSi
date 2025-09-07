@@ -12,6 +12,20 @@ export default async function (fastify, opts) {
     preValidation: createValidationHook(schemas.member.create)
   }, async (request, reply) => {
       const { name, phone, gender, birthday, notes } = request.body;
+      
+      // 手机号唯一性校验（除了占位符 00000000000）
+      if (phone && phone !== '00000000000') {
+        const existingMember = await prisma.member.findFirst({
+          where: { 
+            phone,
+            phone: { not: '00000000000' }
+          }
+        });
+        if (existingMember) {
+          return reply.code(400).send({ message: '该手机号已被使用' });
+        }
+      }
+      
       const newMember = await prisma.member.create({
         data: {
           id: generateId(),
@@ -72,6 +86,11 @@ export default async function (fastify, opts) {
                   id: true,
                   balance: true,
                   status: true,
+                  // 自定义面值卡相关字段
+                  isCustomCard: true,
+                  customAmount: true,
+                  discountSource: true,
+                  customDiscountRate: true,
                   cardType: {
                     select: {
                       id: true,
@@ -96,7 +115,8 @@ export default async function (fastify, opts) {
             include: {
               _count: {
                 select: { 
-                  cards: true // 总卡数
+                  cards: true, // 总卡数
+                  pendingPayments: true // 挂账记录数
                 }
               },
               cards: {
@@ -104,6 +124,11 @@ export default async function (fastify, opts) {
                   id: true,
                   balance: true,
                   status: true
+                }
+              },
+              pendingPayments: {
+                select: {
+                  amount: true
                 }
               }
             }
@@ -114,16 +139,28 @@ export default async function (fastify, opts) {
       
       // --- 优化：处理返回数据 ---
       const members = membersData.map(member => {
+        // 计算总余额
+        const totalBalance = member.cards
+          .filter(card => card.status === 'ACTIVE')
+          .reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
+        
+        // 计算总挂账
+        const totalPending = member.pendingPayments
+          .reduce((sum, payment) => sum.plus(new Decimal(payment.amount)), new Decimal(0));
+        
         if (shouldIncludeCards) {
-          // 计算总余额
-          const totalBalance = member.cards.reduce(
-              (sum, card) => sum.plus(new Decimal(card.balance)), 
-              new Decimal(0)
-          );
-          return { ...member, totalBalance: totalBalance.toNumber() };
+          return { 
+            ...member, 
+            totalBalance: totalBalance.toNumber(),
+            totalPending: totalPending.toNumber()
+          };
         } else {
-          // 保留原有格式，前端会处理卡片统计
-          return member;
+          // 保留原有格式，但添加余额和挂账信息
+          return { 
+            ...member, 
+            totalBalance: totalBalance.toNumber(),
+            totalPending: totalPending.toNumber()
+          };
         }
       });
 
@@ -168,8 +205,21 @@ export default async function (fastify, opts) {
     const { id } = request.params;
     const { name, phone, gender, birthday, status, notes } = request.body;
 
+    // 手机号唯一性校验（除了占位符 00000000000）
+    if (phone && phone !== '00000000000') {
+      const existingMember = await prisma.member.findFirst({
+        where: { 
+          phone,
+          phone: { not: '00000000000' },
+          id: { not: id }  // 排除当前更新的会员
+        }
+      });
+      if (existingMember) {
+        return reply.code(400).send({ message: '该手机号已被使用' });
+      }
+    }
 
-      const updatedMember = await prisma.member.update({
+    const updatedMember = await prisma.member.update({
         where: { id },
         data: {
           name,
@@ -293,8 +343,61 @@ export default async function (fastify, opts) {
 
   });
 
+  // 获取会员挂账列表
+  fastify.get('/:id/pending', async (request, reply) => {
+    const { id } = request.params;
+    
+    const pendingPayments = await prisma.pendingPayment.findMany({
+      where: { memberId: id },
+      orderBy: { createdAt: 'desc' }
+    });
 
+    return pendingPayments;
+  });
 
+  // 添加会员挂账
+  fastify.post('/:id/pending', async (request, reply) => {
+    const { id } = request.params;
+    const { amount, description, createdAt } = request.body;
+    
+    if (!amount || amount <= 0) {
+      return reply.code(400).send({ message: '挂账金额必须大于0' });
+    }
+
+    const pendingPayment = await prisma.pendingPayment.create({
+      data: {
+        id: generateId(),
+        memberId: id,
+        amount: amount,
+        description: description || null,
+        createdAt: createdAt ? new Date(createdAt) : new Date()
+      }
+    });
+
+    return { message: '挂账添加成功', pendingPayment };
+  });
+
+  // 删除单个挂账记录
+  fastify.delete('/:id/pending/:pendingId', async (request, reply) => {
+    const { pendingId } = request.params;
+
+    await prisma.pendingPayment.delete({
+      where: { id: pendingId }
+    });
+
+    return { message: '挂账记录已删除' };
+  });
+
+  // 清除会员所有挂账
+  fastify.delete('/:id/pending', async (request, reply) => {
+    const { id } = request.params;
+
+    await prisma.pendingPayment.deleteMany({
+      where: { memberId: id }
+    });
+
+    return { message: '所有挂账已清除' };
+  });
 
   
 }

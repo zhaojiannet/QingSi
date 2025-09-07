@@ -2,13 +2,34 @@
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
+import Decimal from 'decimal.js';
 
 export default async function (fastify, opts) {
   fastify.post('/issue-with-transaction', async (request, reply) => {
-      const { memberId, cardTypeId, staffId, paymentMethod } = request.body;
+      const { 
+        memberId, 
+        cardTypeId, 
+        staffId, 
+        paymentMethod,
+        // 自定义面值卡相关字段
+        isCustomCard = false,
+        customAmount,
+        discountSource = 'card_type',
+        customDiscountRate
+      } = request.body;
 
       if (!memberId || !cardTypeId) {
         return reply.code(400).send({ message: '会员和卡类型均为必填项。' });
+      }
+      
+      // 自定义面值卡的额外验证
+      if (isCustomCard) {
+        if (!customAmount || customAmount <= 0) {
+          return reply.code(400).send({ message: '自定义面值卡必须提供有效的金额。' });
+        }
+        if (discountSource === 'custom' && (!customDiscountRate || customDiscountRate <= 0 || customDiscountRate > 1)) {
+          return reply.code(400).send({ message: '自定义折扣率必须在0-1之间。' });
+        }
       }
       
       const cardType = await prisma.cardType.findUnique({ where: { id: cardTypeId } });
@@ -17,29 +38,45 @@ export default async function (fastify, opts) {
       }
       
       const result = await prisma.$transaction(async (tx) => {
+        // 计算卡片初始金额和名称
+        const cardBalance = isCustomCard ? customAmount : cardType.initialPrice;
+        const cardName = isCustomCard ? `自定义面值卡(¥${new Decimal(customAmount).toFixed(2)})` : cardType.name;
+        
+        // 计算折扣率显示
+        let discountDisplay = '';
+        if (discountSource === 'custom' && customDiscountRate) {
+          discountDisplay = `${Math.round(customDiscountRate * 10)}折`;
+        } else {
+          discountDisplay = `${Math.round(cardType.discountRate * 10)}折`;
+        }
+        
         const newCard = await tx.card.create({
           data: {
             id: generateId(),
             member: { connect: { id: memberId } },
             cardType: { connect: { id: cardTypeId } },
-            balance: cardType.initialPrice,
+            balance: cardBalance,
             status: 'ACTIVE',
+            // 自定义面值卡相关字段
+            isCustomCard,
+            ...(isCustomCard && { customAmount }),
+            discountSource,
+            ...(discountSource === 'custom' && { customDiscountRate }),
           },
         });
 
-        // --- 核心修改：填充 summary 字段 ---
+        // 创建交易记录
         await tx.transaction.create({
           data: {
             id: generateId(),
             member: { connect: { id: memberId } },
             ...(staffId && { staff: { connect: { id: staffId } } }), 
-            summary: `办理【${cardType.name}】`, // 设置交易摘要
-            totalAmount: cardType.initialPrice,
-            actualPaidAmount: cardType.initialPrice,
+            summary: `办理【${cardName} ${discountDisplay}】`,
+            totalAmount: cardBalance,
+            actualPaidAmount: cardBalance,
             discountAmount: 0,
             paymentMethod: paymentMethod || 'CASH',
             transactionTime: new Date(),
-            // notes 字段可以保留用于操作员的额外备注
           },
         });
         

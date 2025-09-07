@@ -9,10 +9,11 @@ export const createTransaction = (data) => {
   });
 };
 
-export const getTodayTransactions = () => {
+export const getTodayTransactions = (params = {}) => {
   return request({
     url: '/transactions/today',
     method: 'get',
+    params
   });
 };
 

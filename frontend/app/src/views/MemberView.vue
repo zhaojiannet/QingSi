@@ -29,9 +29,22 @@
     <!-- 表格区域 -->
     <div class="table-container">
       <el-table :data="members" v-loading="loading" style="width: 100%" stripe size="large">
+        <!-- 1. 姓名 -->
         <el-table-column prop="name" label="姓名" width="100" />
+        
+        <!-- 2. 性别 -->
+        <el-table-column prop="gender" label="性别" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="row.gender === 'MALE'" type="primary" size="small">男</el-tag>
+            <el-tag v-else-if="row.gender === 'FEMALE'" type="danger" size="small">女</el-tag>
+            <el-tag v-else type="info" size="small">未知</el-tag>
+          </template>
+        </el-table-column>
+        
+        <!-- 3. 手机号 -->
         <el-table-column prop="phone" label="手机号" width="150" />
         
+        <!-- 4. 会员卡 -->
         <el-table-column label="会员卡" width="120" align="center">
           <template #default="{ row }">
             <div @click.stop="handleCardManagement(row)" class="card-cell-content">
@@ -51,21 +64,34 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="gender" label="性别" width="80">
-          <template #default="{ row }">
-            <el-tag v-if="row.gender === 'MALE'" type="primary" size="small">男</el-tag>
-            <el-tag v-else-if="row.gender === 'FEMALE'" type="danger" size="small">女</el-tag>
-            <el-tag v-else type="info" size="small">未知</el-tag>
-          </template>
-        </el-table-column>
-
+        <!-- 5. 状态 -->
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <!-- 优化点5: 使用通用格式化函数 -->
             <el-tag :type="memberStatusTagType(row.status)" size="small">{{ memberStatusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="registrationDate" label="注册日期" width="180">
+        
+        <!-- 6. 余额 -->
+        <el-table-column label="余额" width="120" align="right">
+          <template #default="{ row }">
+            <span :class="['balance-amount', { 'zero-balance': row.totalBalance === 0 }]">
+              {{ formatCurrency(row.totalBalance || 0) }}
+            </span>
+          </template>
+        </el-table-column>
+        
+        <!-- 7. 挂账 -->
+        <el-table-column label="挂账" width="120" align="right">
+          <template #default="{ row }">
+            <span v-if="row.totalPending && row.totalPending > 0" class="pending-amount">
+              {{ formatCurrency(row.totalPending) }}
+            </span>
+            <span v-else class="no-pending">-</span>
+          </template>
+        </el-table-column>
+        
+        <!-- 8. 注册日期 -->
+        <el-table-column prop="registrationDate" label="注册日期" width="120">
           <template #default="{ row }">
             <el-tooltip
               :content="formatFullDateTimeInAppTimeZone(row.registrationDate)"
@@ -76,7 +102,11 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column prop="notes" label="备注" />
+        
+        <!-- 9. 备注 -->
+        <el-table-column prop="notes" label="备注" min-width="150" show-overflow-tooltip />
+        
+        <!-- 10. 操作 -->
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="default" :icon="Edit" @click="handleEdit(row)">
@@ -87,19 +117,22 @@
       </el-table>
     </div>
 
-    <!-- 分页区域 -->
-    <div class="pagination-container">
-       <el-pagination
-        v-if="total > 0"
-        :class="{ 'is-mobile': isMobile }"
-        v-model:current-page="searchParams.page"
-        v-model:page-size="searchParams.limit"
-        :page-sizes="[10, 20, 50, 100]"
-        :layout="paginationLayout"
-        :total="total"
-        @size-change="handleSizeChange"
-        @current-change="handleCurrentChange"
-      />
+    <!-- 分页加载更多区域 -->
+    <div class="pagination-section">
+      <div v-if="hasMore" class="load-more-container">
+        <el-button 
+          @click="loadMoreMembers" 
+          :loading="isLoadingMore"
+          type="primary"
+          size="small"
+          style="padding: 12px 24px; border-radius: 6px;"
+        >
+          {{ isLoadingMore ? '加载中...' : `加载更多 (已显示 ${members.length}/${total} 条)` }}
+        </el-button>
+      </div>
+      <div v-else-if="members.length > 0" class="all-loaded">
+        已显示全部 {{ total }} 条记录
+      </div>
     </div>
 
     <!-- 新增/编辑会员表单组件 -->
@@ -109,8 +142,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, computed } from 'vue';
-import { useBreakpoints } from '@vueuse/core';
+import { ref, reactive, onMounted, watch } from 'vue';
 import { getMembers } from '@/api/member.js';
 import { Plus, Edit, Search, CreditCard } from '@element-plus/icons-vue'; 
 import MemberForm from '@/components/MemberForm.vue';
@@ -119,6 +151,8 @@ import MemberDetailDrawer from '@/components/member/MemberDetailDrawer.vue';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 // 优化点4: 引入统一时区处理函数
 import { formatInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
+// 引入货币格式化函数
+import { formatCurrency } from '@/utils/currency.js';
 // 性能优化工具
 import { debounce } from '@/utils/performance.js';
 
@@ -128,25 +162,44 @@ const loading = ref(false);
 const total = ref(0);
 const searchParams = reactive({
   page: 1,
-  limit: 10,
+  limit: 20,
   search: '',
 });
+const isLoadingMore = ref(false);
+const hasMore = ref(true);
 const memberFormRef = ref(null);
 const detailDrawerRef = ref(null);
 
 // --- 数据获取与实时搜索 ---
-const fetchMembers = async () => {
-  loading.value = true;
+const fetchMembers = async (reset = true) => {
+  if (reset) {
+    loading.value = true;
+    searchParams.page = 1;
+    members.value = [];
+  } else {
+    isLoadingMore.value = true;
+  }
+  
   try {
     const res = await getMembers(searchParams);
-    members.value = res.data;
+    
+    if (reset) {
+      members.value = res.data;
+    } else {
+      members.value.push(...res.data);
+    }
+    
     total.value = res.total;
+    hasMore.value = members.value.length < res.total;
   } catch(error) {
     // Error fetching members - handled silently
-    members.value = [];
-    total.value = 0;
+    if (reset) {
+      members.value = [];
+      total.value = 0;
+    }
   } finally {
     loading.value = false;
+    isLoadingMore.value = false;
   }
 };
 
@@ -156,20 +209,18 @@ onMounted(() => {
 
 // 使用防抖优化搜索
 const handleSearchDebounced = debounce(() => {
-  searchParams.page = 1;
-  fetchMembers();
+  fetchMembers(true);
 }, 500);
 
-// --- 事件处理 ---
-const handleSizeChange = (val) => {
-  searchParams.limit = val;
-  fetchMembers();
+// 加载更多会员
+const loadMoreMembers = async () => {
+  if (isLoadingMore.value || !hasMore.value) return;
+  
+  searchParams.page++;
+  await fetchMembers(false);
 };
 
-const handleCurrentChange = (val) => {
-  searchParams.page = val;
-  fetchMembers();
-};
+// --- 事件处理 ---
 
 const handleAdd = () => {
   memberFormRef.value.open();
@@ -187,15 +238,7 @@ const handleCardManagement = (row) => {
   detailDrawerRef.value.open(row.id);
 };
 
-// --- 分页响应式布局 ---
-const breakpoints = useBreakpoints({ mobile: 767 });
-const isMobile = breakpoints.smaller('mobile');
-
-const paginationLayout = computed(() => {
-  return isMobile.value
-    ? 'prev, pager, next'
-    : 'total, sizes, prev, pager, next, jumper';
-});
+// --- 已移除传统分页逻辑 ---
 
 // --- 辅助函数 ---
 const getCardStats = (member) => {
@@ -238,13 +281,24 @@ const getCardStats = (member) => {
   background-color: #fafafa;
   border-radius: 6px;
 }
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 20px;
+/* 分页加载样式 */
+.pagination-section {
+  padding: 20px;
+  text-align: center;
+  border-top: 1px solid #e4e7ed;
+  background-color: #fafafa;
 }
-.pagination-container .is-mobile {
+
+.load-more-container {
+  display: flex;
   justify-content: center;
+  align-items: center;
+}
+
+.all-loaded {
+  color: #909399;
+  font-size: 14px;
+  padding: 10px 0;
 }
 .table-container :deep(.el-table .el-table__cell) {
   overflow: visible; 
@@ -277,5 +331,26 @@ const getCardStats = (member) => {
 .total-count {
   color: inherit;
   font-weight: normal;
+}
+
+/* 余额和挂账列样式 */
+.balance-amount {
+  font-weight: bold;
+  color: #E6A23C;
+}
+
+.balance-amount.zero-balance {
+  color: #C0C4CC;
+  font-weight: normal;
+}
+
+.pending-amount {
+  font-weight: bold;
+  color: #f56c6c;
+}
+
+.no-pending {
+  color: #C0C4CC;
+  font-style: italic;
 }
 </style>

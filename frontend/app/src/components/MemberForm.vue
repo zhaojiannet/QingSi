@@ -106,7 +106,21 @@ const formRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   phone: [
     { required: true, message: '请输入手机号', trigger: 'blur' },
-    { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }
+    { 
+      validator: (rule, value, callback) => {
+        if (!value) {
+          callback(new Error('请输入手机号'));
+        } else if (value === '00000000000') {
+          // 允许占位符手机号
+          callback();
+        } else if (!/^1[3-9]\d{9}$/.test(value)) {
+          callback(new Error('手机号格式不正确'));
+        } else {
+          callback();
+        }
+      }, 
+      trigger: 'blur' 
+    }
   ]
 };
 const emit = defineEmits(['success']);

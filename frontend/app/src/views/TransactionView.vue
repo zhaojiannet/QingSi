@@ -32,7 +32,7 @@
               <el-tag :type="memberStatusTagType(item.status)" size="small" effect="plain">{{ memberStatusText(item.status) }}</el-tag>
               
               <el-tag v-if="item.totalBalance > 0" type="warning" size="small" effect="plain">
-                有卡 (余额: ¥{{ item.totalBalance.toFixed(2) }})
+                有卡 (余额: {{ formatCurrency(item.totalBalance) }})
               </el-tag>
               <el-tag v-else type="info" size="small" effect="plain">无有效卡</el-tag>
 
@@ -60,7 +60,7 @@
               <el-option
                 v-for="item in sortedServiceList"
                 :key="item.id"
-                :label="`${item.name} (¥${item.standardPrice})`"
+                :label="`${item.name} (${formatCurrency(item.standardPrice)})`"
                 :value="item.id"
               />
             </el-select>
@@ -98,7 +98,7 @@
               <el-option
                 v-for="card in availableCards"
                 :key="card.id"
-                :label="`${card.cardType.name} (余额: ¥${new Decimal(card.balance).toFixed(2)}, ${Math.round(card.cardType.discountRate * 10)}折)`"
+                :label="`${getCardDisplayName(card)} (余额: ${formatCurrency(card.balance)}, ${formatDiscountRate(getCardDiscountRate(card))})`"
                 :value="card.id"
               />
             </el-select>
@@ -127,7 +127,7 @@
                   <span class="service-name">{{ row.name }}</span>
                   <div class="service-discount-info" v-if="form.paymentMethod === 'MEMBER_CARD' && selectedMember">
                     <el-tag v-if="row.noDiscount" type="danger" size="small" class="discount-tag">
-                      <el-icon><Warning /></el-icon> 无折扣 ¥{{ new Decimal(row.standardPrice).toFixed(2) }}
+                      <el-icon><Warning /></el-icon> 无折扣 {{ formatCurrency(row.standardPrice) }}
                     </el-tag>
                     <el-tag v-else type="success" size="small" class="discount-tag">
                       {{ getServiceDiscountText(row) }}
@@ -160,7 +160,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="standardPrice" label="价格" width="80" align="right">
-               <template #default="{ row }">¥{{ new Decimal(row.standardPrice).toFixed(2) }}</template>
+               <template #default="{ row }">{{ formatCurrency(row.standardPrice) }}</template>
             </el-table-column>
           </el-table>
           <el-divider />
@@ -207,9 +207,9 @@
                 </span>
               </div>
               <div class="plan-card-body">
-                <span>原价: ¥{{ detail.originalAmountCovered.toFixed(2) }}</span>
-                <span>优惠: -¥{{ detail.discountAmount.toFixed(2) }}</span>
-                <span class="deduction">实扣: ¥{{ detail.deduction.toFixed(2) }}</span>
+                <span>原价: {{ formatCurrency(detail.originalAmountCovered) }}</span>
+                <span>优惠: -{{ formatCurrency(detail.discountAmount) }}</span>
+                <span class="deduction">实扣: {{ formatCurrency(detail.deduction) }}</span>
               </div>
             </div>
           </div>
@@ -233,13 +233,13 @@
     <div class="page-header">
       <h2 class="page-title">消费记录</h2>
     </div>
-    <div>
-      <el-table :data="todayTransactions" stripe max-height="600" class="today-table">
+    <div class="transaction-table-container">
+      <el-table :data="todayTransactions" stripe class="today-table" style="width: 100%">
         <el-table-column prop="member.name" label="姓名" width="100">
           <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
         </el-table-column>
         
-        <el-table-column label="会员卡" width="150">
+        <el-table-column label="会员卡" width="200">
           <template #default="{ row }">
             <!-- 多卡支付显示所有卡片 -->
             <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
@@ -271,7 +271,7 @@
         </el-table-column>
         
         <el-table-column label="应付金额" width="90" align="right">
-          <template #default="{ row }">¥{{ row.totalAmount }}</template>
+          <template #default="{ row }">{{ formatCurrency(row.totalAmount) }}</template>
         </el-table-column>
         
         <el-table-column label="折扣" width="180" align="left">
@@ -287,7 +287,7 @@
               <div v-if="isMultiCardPayment(row)" class="multi-card-payment">
                 <el-tag type="warning" size="small" class="multi-card-tag">
                   <el-icon><CreditCard /></el-icon>
-                  多卡 {{ getAverageDiscountDisplay(row) }}折 ¥{{ row.discountAmount }}
+                  多卡 {{ getAverageDiscountDisplay(row) }}折 {{ formatCurrency(row.discountAmount) }}
                 </el-tag>
                 <div class="multi-card-details">
                   {{ getMultiCardDetails(row) }}
@@ -296,7 +296,7 @@
               <!-- 单卡支付：有cardUsed信息 -->
               <div v-else-if="row.cardUsed">
                 <el-tag type="primary" size="small">
-                  {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
+                  {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 {{ formatCurrency(row.discountAmount) }}
                 </el-tag>
               </div>
               <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
@@ -328,6 +328,24 @@
           </template>
         </el-table-column>
       </el-table>
+      
+      <!-- 分页加载更多区域 -->
+      <div class="pagination-section">
+        <div v-if="transactionPagination.hasMore" class="load-more-container">
+          <el-button 
+            @click="loadMoreTransactions" 
+            :loading="isLoadingMore"
+            type="primary"
+            size="small"
+            style="padding: 12px 24px; border-radius: 6px;"
+          >
+            {{ isLoadingMore ? '加载中...' : `加载更多 (已显示 ${todayTransactions.length}/${transactionPagination.total} 条)` }}
+          </el-button>
+        </div>
+        <div v-else-if="todayTransactions.length > 0" class="all-loaded">
+          已显示全部 {{ transactionPagination.total }} 条记录
+        </div>
+      </div>
     </div>
 </div>
 
@@ -340,7 +358,7 @@
     >
       <el-form :model="priceAdjustmentDialog" label-width="100px">
         <el-form-item label="原实付金额">
-          <el-input :value="`¥${displayActualPaidAmount.toFixed(2)}`" readonly />
+          <el-input :value="formatCurrency(displayActualPaidAmount)" readonly />
         </el-form-item>
         <el-form-item label="调整后金额" required>
           <el-input-number 
@@ -376,8 +394,8 @@
           <template #title>
             <div>请确认价格调整信息：</div>
             <div style="margin-top: 10px;">
-              原金额：¥{{ displayActualPaidAmount.toFixed(2) }} → 
-              调整后：¥{{ priceConfirmDialog.newAmount?.toFixed(2) }}
+              原金额：{{ formatCurrency(displayActualPaidAmount) }} → 
+              调整后：{{ formatCurrency(priceConfirmDialog.newAmount) }}
             </div>
             <div style="color: #E6A23C; font-weight: bold;">
               {{ adjustmentDifferenceText }}
@@ -421,6 +439,7 @@ import { createTransaction, getTodayTransactions, createComboCheckout, createMul
 import { CreditCard, Plus, Minus, Edit } from '@element-plus/icons-vue';
 import Decimal from 'decimal.js';
 import { ElMessage } from 'element-plus';
+import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 
 // 四舍五入到两位小数的工具函数
 const roundToTwoDecimals = (value) => {
@@ -437,6 +456,13 @@ const allStaff = ref([]);
 const selectedMember = ref(null);
 const isSubmitting = ref(false);
 const todayTransactions = ref([]);
+const transactionPagination = ref({
+  page: 1,
+  limit: 20,
+  total: 0,
+  hasMore: true
+});
+const isLoadingMore = ref(false);
 const cardPaymentMode = ref('auto');
 const transactionStore = useTransactionStore();
 
@@ -519,10 +545,19 @@ const fetchStaff = async () => {
   allStaff.value = await getStaffList({ status: 'ACTIVE' });
   return allStaff.value;
 };
-const fetchTodayTransactions = async () => { 
+const fetchTodayTransactions = async (reset = true) => { 
   try {
-    const data = await getTodayTransactions();
-    todayTransactions.value = data.map(tx => ({
+    if (reset) {
+      transactionPagination.value.page = 1;
+      todayTransactions.value = [];
+    }
+    
+    const response = await getTodayTransactions({
+      page: transactionPagination.value.page,
+      limit: transactionPagination.value.limit
+    });
+    
+    const formattedData = response.data.map(tx => ({
       ...tx,
       items: tx.items.map(item => ({
         ...item,
@@ -531,15 +566,40 @@ const fetchTodayTransactions = async () => {
       // 检测是否为手动调整：notes包含"价格调整："
       manualAdjustment: tx.notes && tx.notes.includes('价格调整：')
     }));
+    
+    if (reset) {
+      todayTransactions.value = formattedData;
+    } else {
+      todayTransactions.value.push(...formattedData);
+    }
+    
+    transactionPagination.value = {
+      ...transactionPagination.value,
+      total: response.pagination.total,
+      hasMore: response.pagination.hasMore
+    };
+    
   } catch(error) {
     console.error("获取当日消费记录失败:", error);
-    todayTransactions.value = [];
+    if (reset) {
+      todayTransactions.value = [];
+    }
   }
 };
 const queryMembersAsync = async (queryString, cb) => {
   if (!queryString) return cb([]);
   const { data } = await getMembers({ search: queryString, limit: 20, includeCards: true });
   cb(data.map(m => ({ ...m, value: `${m.name} (${m.phone})` }))); 
+};
+
+// 加载更多交易记录
+const loadMoreTransactions = async () => {
+  if (isLoadingMore.value || !transactionPagination.value.hasMore) return;
+  
+  isLoadingMore.value = true;
+  transactionPagination.value.page++;
+  await fetchTodayTransactions(false);
+  isLoadingMore.value = false;
 };
 
 // --- 计算属性 ---
@@ -730,6 +790,22 @@ const availableCards = computed(() => {
     });
 });
 
+// 获取卡片显示名称（区分自定义面值卡）
+const getCardDisplayName = (card) => {
+  if (card.isCustomCard && card.customAmount) {
+    return `自定义面值卡(¥${formatAmount(card.customAmount)})`;
+  }
+  return card.cardType.name;
+};
+
+// 获取卡片有效折扣率
+const getCardDiscountRate = (card) => {
+  if (card.discountSource === 'custom' && card.customDiscountRate) {
+    return toDecimal(card.customDiscountRate);
+  }
+  return toDecimal(card.cardType.discountRate);
+};
+
 // --- 核心修改2：paymentPlan 计算属性增强 ---
 const paymentPlan = computed(() => {
   if (cartItems.value.length === 0 || !selectedMember.value) {
@@ -756,8 +832,8 @@ const paymentPlan = computed(() => {
     const discountAmount = discountableAmount.value.minus(discountableDeduction);
     return {
       paymentDetails: [{
-        cardName: card.cardType.name,
-        discountRate: new Decimal(card.cardType.discountRate),
+        cardName: getCardDisplayName(card),
+        discountRate: getCardDiscountRate(card),
         originalAmountCovered: totalAmount.value,
         deduction: totalDeduction,
         discountAmount: discountAmount,
@@ -778,7 +854,7 @@ const paymentPlan = computed(() => {
     if (remainingDiscountableAmount.isZero() && remainingNoDiscountAmount.isZero()) break;
     
     const cardBalance = new Decimal(card.balance);
-    const discountRate = new Decimal(card.cardType.discountRate);
+    const discountRate = getCardDiscountRate(card);
     let cardUsed = new Decimal(0);
     let originalAmountCovered = new Decimal(0);
     let discountAmount = new Decimal(0);
@@ -810,7 +886,7 @@ const paymentPlan = computed(() => {
     if (originalAmountCovered.gt(0)) {
       totalPaid = totalPaid.plus(cardUsed);
       paymentDetails.push({
-        cardName: card.cardType.name,
+        cardName: getCardDisplayName(card),
         discountRate: discountRate,
         originalAmountCovered: originalAmountCovered,
         deduction: cardUsed,
@@ -1025,11 +1101,7 @@ const getSingleCardDiscountDisplay = (transaction) => {
   return `会员卡 ¥${formatAmount(transaction.discountAmount)}`;
 };
 
-// 格式化金额到分（两位小数）
-const formatAmount = (amount) => {
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  return (Math.round(num * 100) / 100).toFixed(2);
-};
+// 已通过 currency.js 提供 formatAmount 函数
 
 // 获取单个服务的折扣信息文本
 const getServiceDiscountText = (service) => {
@@ -1095,11 +1167,18 @@ const getMultiCardList = (transaction) => {
     // 按 + 分割，提取卡片名称
     const cardParts = cardsText.split(' + ');
     return cardParts.map(part => {
-      // 提取卡片名称（去掉金额部分）
-      const cardMatch = part.match(/^([^¥]+)/);
-      return {
-        name: cardMatch ? cardMatch[1].trim() : part.trim()
-      };
+      // 提取卡片名称（处理自定义面值卡格式：自定义面值卡(¥100.00)¥100.00）
+      // 对于自定义面值卡，我们需要找到最后一个¥符号作为分割点
+      const lastYenIndex = part.lastIndexOf('¥');
+      if (lastYenIndex > 0) {
+        return {
+          name: part.substring(0, lastYenIndex).trim()
+        };
+      } else {
+        return {
+          name: part.trim()
+        };
+      }
     });
   }
   
@@ -1333,5 +1412,29 @@ const handleCheckout = async () => {
   text-align: center;
   z-index: 10;
   font-weight: bold;
+}
+
+/* 分页加载样式 */
+.pagination-section {
+  padding: 20px;
+  text-align: center;
+  border-top: 1px solid #e4e7ed;
+  background-color: #fafafa;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.all-loaded {
+  color: #909399;
+  font-size: 14px;
+  padding: 10px 0;
+}
+
+.transaction-table-container {
+  width: 100%;
 }
 </style>

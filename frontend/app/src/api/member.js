@@ -68,3 +68,36 @@ export const issueNewCard = (memberId, data) => {
     data, // { cardTypeId, expiryDate }
   });
 };
+
+// --- 新增：获取会员挂账列表 ---
+export const getPendingPayments = (memberId) => {
+  return request({
+    url: `/members/${memberId}/pending`,
+    method: 'get',
+  });
+};
+
+// --- 新增：添加会员挂账 ---
+export const addPendingPayment = (memberId, data) => {
+  return request({
+    url: `/members/${memberId}/pending`,
+    method: 'post',
+    data, // { amount, description, createdAt }
+  });
+};
+
+// --- 新增：删除单个挂账记录 ---
+export const deletePendingPayment = (memberId, pendingId) => {
+  return request({
+    url: `/members/${memberId}/pending/${pendingId}`,
+    method: 'delete',
+  });
+};
+
+// --- 新增：清除会员所有挂账 ---
+export const clearAllPendingPayments = (memberId) => {
+  return request({
+    url: `/members/${memberId}/pending`,
+    method: 'delete',
+  });
+};

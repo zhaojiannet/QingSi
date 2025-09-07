@@ -82,9 +82,14 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
     if (deduction.greaterThan(0)) {
       remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
       actualPaidTotal = actualPaidTotal.plus(deduction);
+      // 生成正确的卡片名称（包含自定义面值卡）
+      const cardName = card.isCustomCard 
+        ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
+        : card.cardType.name;
+      
       paymentDetails.push({
         cardId: card.id,
-        cardName: card.cardType.name,
+        cardName: cardName,
         originalAmountCovered: amountToCoverByThisCard.toNumber(),
         actualPaid: deduction.toNumber(),
         discountAmount: amountToCoverByThisCard.minus(deduction).toNumber(),
@@ -119,7 +124,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
         paymentMethod: 'MEMBER_CARD',
         cardId: null, // 多卡支付不关联单一卡片
-        notes: `多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${d.actualPaid}`).join(' + ')}`,
+        notes: `多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
         transactionTime: new Date()
       }
     });
@@ -528,9 +533,14 @@ export default async function (fastify, opts) {
       actualPaidTotal = actualPaidTotal.plus(deduction);
       remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
 
+      // 生成正确的卡片名称（包含自定义面值卡）
+      const cardName = card.isCustomCard 
+        ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
+        : card.cardType.name;
+      
       paymentDetails.push({
         cardId: card.id,
-        cardName: card.cardType.name,
+        cardName: cardName,
         deduction: deduction.toDecimalPlaces(2).toNumber(),
         originalAmountCovered: amountToCoverByThisCard.toDecimalPlaces(2).toNumber(),
         discountRate: card.cardType.discountRate
@@ -553,11 +563,25 @@ export default async function (fastify, opts) {
 
   // --- 获取今日交易记录的接口 ---
   fastify.get('/today', async (request, reply) => {
+      const { page = 1, limit = 20 } = request.query;
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const skip = (pageNum - 1) * limitNum;
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // 获取总记录数
+      const totalCount = await prisma.transaction.count({
+        where: {
+          transactionTime: {
+            gte: today,
+            lt: tomorrow,
+          },
+        },
+      });
 
       const transactions = await prisma.transaction.findMany({
         where: {
@@ -581,8 +605,8 @@ export default async function (fastify, opts) {
           },
         },
         orderBy: { transactionTime: 'desc' },
-                // take: 20, // 只返回最多20条记录
-
+        skip: skip,
+        take: limitNum,
       });
 
       const formattedTransactions = transactions.map(t => ({
@@ -592,7 +616,15 @@ export default async function (fastify, opts) {
         discountAmount: new Decimal(t.discountAmount).toFixed(2),
       }));
 
-      return formattedTransactions;
+      return {
+        data: formattedTransactions,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          hasMore: skip + limitNum < totalCount
+        }
+      };
 
   });
 

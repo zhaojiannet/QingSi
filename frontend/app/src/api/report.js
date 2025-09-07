@@ -64,3 +64,12 @@ export const getCardSalesSummary = (params) => {
     params, // { startDate, endDate }
   });
 };
+
+// --- 新增3：获取挂账统计 ---
+export const getPendingStats = (params) => {
+  return request({
+    url: '/reports/pending-stats',
+    method: 'get',
+    params, // { page, limit }
+  });
+};
