@@ -32,10 +32,76 @@
         <el-descriptions-item label="备注" :span="2">{{ member.notes || '无' }}</el-descriptions-item>
       </el-descriptions>
 
+      <!-- 挂账/未结清款项 -->
+      <el-divider>挂账/未结清款项</el-divider>
+      <div class="pending-section">
+        <!-- 挂账列表 -->
+        <div v-if="pendingPayments.length > 0" class="pending-list">
+          <el-row :gutter="8">
+            <el-col 
+              v-for="payment in pendingPayments" 
+              :key="payment.id" 
+              :xs="24" 
+              :sm="12" 
+              :md="8"
+              class="pending-col"
+            >
+              <div class="pending-item">
+                <div class="pending-info">
+                  <span class="pending-amount">¥{{ formatAmount(payment.amount) }}</span>
+                  <span class="pending-description" v-if="payment.description">{{ payment.description }}</span>
+                  <span class="pending-date">{{ formatDateInAppTimeZone(payment.createdAt) }}</span>
+                </div>
+                <el-button 
+                  type="danger" 
+                  size="small" 
+                  plain 
+                  @click="handleDeletePendingPayment(payment.id)"
+                  class="delete-btn"
+                >
+                  删除
+                </el-button>
+              </div>
+            </el-col>
+          </el-row>
+          
+          <!-- 操作按钮行 -->
+          <div class="pending-actions">
+            <div class="pending-total">
+              <span class="total-label">总挂账：</span>
+              <span class="total-amount">¥{{ formatAmount(totalPendingAmount.toNumber()) }}</span>
+            </div>
+            <div class="action-buttons">
+              <el-button type="success" size="small" @click="handleClearAllPending">
+                全部清账
+              </el-button>
+              <el-button type="primary" size="small" @click="openPendingDialog">
+                添加挂账
+              </el-button>
+            </div>
+          </div>
+        </div>
+        
+        <div v-else class="no-pending">
+          <span>无挂账</span>
+          <el-button type="primary" size="small" @click="openPendingDialog">
+            添加挂账
+          </el-button>
+        </div>
+      </div>
+
       <el-divider>办理新卡</el-divider>
       <div class="issue-card-section">
         <el-form :model="issueCardForm" label-position="top">
-          <el-form-item label="选择卡类型">
+          <el-form-item label="办卡类型">
+            <el-radio-group v-model="issueCardForm.cardMode" @change="onCardModeChange">
+              <el-radio-button value="standard">标准会员卡</el-radio-button>
+              <el-radio-button value="custom">自定义面值卡</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <!-- 标准储值卡选项 -->
+          <el-form-item v-if="issueCardForm.cardMode === 'standard'" label="选择卡类型">
             <el-select v-model="issueCardForm.cardTypeId" placeholder="选择要办理的卡类型" style="width: 100%;">
               <el-option
                 v-for="cardType in availableCardTypes"
@@ -45,6 +111,53 @@
               />
             </el-select>
           </el-form-item>
+
+          <!-- 自定义面值卡选项 -->
+          <template v-if="issueCardForm.cardMode === 'custom'">
+            <el-form-item label="自定义金额" required>
+              <el-input-number
+                v-model="issueCardForm.customAmount"
+                :min="1"
+                :max="10000"
+                :step="10"
+                :precision="2"
+                style="width: 100%"
+                placeholder="请输入卡片面值"
+              />
+              <div class="form-hint">设置这张卡的初始充值金额</div>
+            </el-form-item>
+
+            <el-form-item label="折扣配置" required>
+              <el-radio-group v-model="issueCardForm.discountMode">
+                <el-radio-button value="existing">使用现有卡类型折扣</el-radio-button>
+                <el-radio-button value="custom">自定义折扣率</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item v-if="issueCardForm.discountMode === 'existing'" label="选择折扣卡类型">
+              <el-select v-model="issueCardForm.existingDiscountCardTypeId" placeholder="选择折扣率参照的卡类型" style="width: 100%;">
+                <el-option
+                  v-for="cardType in availableCardTypes"
+                  :key="cardType.id"
+                  :label="`${cardType.name} (${Math.round(cardType.discountRate * 10)}折)`"
+                  :value="cardType.id"
+                />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item v-if="issueCardForm.discountMode === 'custom'" label="自定义折扣率">
+              <el-input-number
+                v-model="issueCardForm.customDiscountRate"
+                :min="0.1"
+                :max="1.0"
+                :step="0.05"
+                :precision="2"
+                style="width: 100%"
+                placeholder="例如：0.8 表示8折"
+              />
+              <div class="form-hint">输入0.1-1.0之间的数值，如0.8表示8折</div>
+            </el-form-item>
+          </template>
           
           <el-form-item v-if="commissionableStaff.length > 0" label="服务员工 (可选)">
             <el-select v-model="issueCardForm.staffId" placeholder="选择服务员工" style="width: 100%;" clearable>
@@ -72,9 +185,9 @@
           style="width: 100%; margin-top: 10px;" 
           @click="handleIssueCard" 
           :loading="isIssuing"
-          :disabled="!issueCardForm.cardTypeId"
+          :disabled="!isValidCardForm"
         >
-          确认办理
+          确认办理 {{ issueCardForm.cardMode === 'custom' ? '自定义面值卡' : '标准会员卡' }}
         </el-button>
       </div>
 
@@ -82,15 +195,14 @@
       
       <div v-if="member.cards && member.cards.length > 0">
         <!-- 显示当前可见的会员卡 -->
-        <div v-for="card in visibleCards" :key="card.id" class="card-item">
+        <div v-for="card in visibleCards" :key="card.id" :class="['card-item', { 'depleted-card': toDecimal(card.balance).isZero() }]">
           <div class="card-info">
-            <span class="card-name">{{ card.cardType.name }}</span>
+            <span class="card-name">{{ getCardDisplayName(card) }} <span class="discount-tag">{{ getCardDiscountDisplay(card) }}</span></span>
             <el-tag size="small" :type="getEffectiveCardStatusTagType(card)">{{ getEffectiveCardStatusText(card) }}</el-tag>
           </div>
           <div class="card-details-right">
             <div class="card-balance">
-              <!-- 核心修复点：对所有金额进行类型转换 -->
-              余额: <span>¥{{ new Decimal(card.balance).toFixed(2) }}</span>
+              余额: <span>{{ formatCurrency(card.balance) }}</span>
             </div>
             <div class="card-issue-date">
               办卡: <el-tooltip
@@ -120,7 +232,7 @@
         <div class="card-item total-balance">
           <span class="card-name">所有有效卡总余额</span>
           <div class="card-balance">
-            <span>¥{{ totalActiveBalance.toFixed(2) }}</span>
+            <span>{{ formatCurrency(totalActiveBalance) }}</span>
           </div>
         </div>
       </div>
@@ -133,11 +245,66 @@
         <el-button type="primary" @click="dialogVisible = false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <!-- 添加挂账对话框 -->
+  <el-dialog
+    v-model="showPendingDialog"
+    title="添加挂账"
+    width="450px"
+    :close-on-click-modal="false"
+  >
+    <el-form :model="pendingForm" label-width="80px">
+      <el-form-item label="挂账金额" required>
+        <el-input
+          v-model="pendingForm.amount"
+          type="number"
+          placeholder="请输入挂账金额"
+          :min="0"
+          step="0.01"
+        >
+          <template #prefix>¥</template>
+        </el-input>
+      </el-form-item>
+      
+      <el-form-item label="备注说明">
+        <el-input
+          v-model="pendingForm.description"
+          type="textarea"
+          :rows="2"
+          placeholder="请输入挂账原因或备注（可选）"
+        />
+      </el-form-item>
+      
+      <el-form-item label="挂账时间">
+        <el-date-picker
+          v-model="pendingForm.createdAt"
+          type="datetime"
+          placeholder="默认为当前时间，可手动修改"
+          format="YYYY-MM-DD HH:mm:ss"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          style="width: 100%"
+        />
+      </el-form-item>
+    </el-form>
+    
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="cancelPendingDialog">取消</el-button>
+        <el-button 
+          type="primary" 
+          @click="handleAddPending"
+          :disabled="!pendingForm.amount || parseFloat(pendingForm.amount) <= 0"
+        >
+          确认添加
+        </el-button>
+      </span>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { ref, reactive, computed } from 'vue';
-import { getMemberById } from '@/api/member.js';
+import { getMemberById, getPendingPayments, addPendingPayment, deletePendingPayment, clearAllPendingPayments } from '@/api/member.js';
 import { getCardTypeList } from '@/api/cardType.js';
 import { issueCardWithTransaction } from '@/api/card.js';
 import { getStaffList } from '@/api/staff.js';
@@ -145,6 +312,7 @@ import { ElMessage } from 'element-plus';
 import Decimal from 'decimal.js'; // 确保引入 Decimal.js
 import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType } from '@/utils/formatters.js';
 import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
+import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 
 const dialogVisible = ref(false);
 const loading = ref(false);
@@ -159,10 +327,25 @@ const apiError = ref(false);
 const depletedCardsOffset = ref(0);
 const depletedCardsPageSize = 5;
 
+// 挂账相关状态
+const showPendingDialog = ref(false);
+const pendingPayments = ref([]);
+const pendingForm = reactive({
+  amount: null,
+  description: '',
+  createdAt: null
+});
+
 const issueCardForm = reactive({
   cardTypeId: '',
   staffId: null,
   paymentMethod: 'CASH',
+  // 自定义面值卡相关字段
+  cardMode: 'standard', // 'standard' 或 'custom'
+  customAmount: null,
+  discountMode: 'existing', // 'existing' 或 'custom'
+  existingDiscountCardTypeId: '',
+  customDiscountRate: null
 });
 
 const availableCardTypes = computed(() => {
@@ -173,6 +356,13 @@ const commissionableStaff = computed(() => {
     return allStaff.value.filter(s => s.status === 'ACTIVE' && s.countsCommission);
 });
 
+// 计算总挂账金额
+const totalPendingAmount = computed(() => {
+  return pendingPayments.value.reduce((sum, payment) => {
+    return sum.plus(toDecimal(payment.amount));
+  }, toDecimal(0));
+});
+
 const onDialogOpen = async () => {
   if (!member.value?.id) return;
   loading.value = true;
@@ -181,19 +371,27 @@ const onDialogOpen = async () => {
   // 重置分页状态
   depletedCardsOffset.value = 0;
   
+  // 重置表单
   issueCardForm.cardTypeId = '';
   issueCardForm.staffId = null;
   issueCardForm.paymentMethod = 'CASH';
+  issueCardForm.cardMode = 'standard';
+  issueCardForm.customAmount = null;
+  issueCardForm.discountMode = 'existing';
+  issueCardForm.existingDiscountCardTypeId = '';
+  issueCardForm.customDiscountRate = null;
 
   try {
-    const [memberData, cardTypesData, staffData] = await Promise.all([
+    const [memberData, cardTypesData, staffData, pendingData] = await Promise.all([
       getMemberById(member.value.id),
       getCardTypeList(),
-      getStaffList()
+      getStaffList(),
+      getPendingPayments(member.value.id)
     ]);
     member.value = memberData;
     allCardTypes.value = cardTypesData;
     allStaff.value = staffData;
+    pendingPayments.value = pendingData;
   } catch (error) {
     apiError.value = true;
     // Error fetching member details - handled silently
@@ -207,19 +405,84 @@ const open = (memberId) => {
   dialogVisible.value = true;
 };
 
+// 添加卡模式切换处理函数
+const onCardModeChange = (mode) => {
+  if (mode === 'custom') {
+    issueCardForm.cardTypeId = '';
+    issueCardForm.customAmount = null;
+    issueCardForm.discountMode = 'existing';
+    issueCardForm.existingDiscountCardTypeId = '';
+    issueCardForm.customDiscountRate = null;
+  } else {
+    // 切换到标准模式时，清除自定义相关字段
+    issueCardForm.customAmount = null;
+    issueCardForm.existingDiscountCardTypeId = '';
+    issueCardForm.customDiscountRate = null;
+  }
+};
+
+// 表单验证计算属性
+const isValidCardForm = computed(() => {
+  if (issueCardForm.cardMode === 'standard') {
+    return !!issueCardForm.cardTypeId;
+  } else {
+    // 自定义面值卡验证
+    const hasValidAmount = issueCardForm.customAmount && issueCardForm.customAmount > 0;
+    const hasValidDiscount = issueCardForm.discountMode === 'existing' 
+      ? !!issueCardForm.existingDiscountCardTypeId
+      : issueCardForm.customDiscountRate && issueCardForm.customDiscountRate > 0;
+    return hasValidAmount && hasValidDiscount;
+  }
+});
+
 const handleIssueCard = async () => {
-  if (!issueCardForm.cardTypeId) {
+  if (issueCardForm.cardMode === 'standard' && !issueCardForm.cardTypeId) {
     ElMessage.warning('请先选择要办理的卡类型');
     return;
+  }
+  
+  if (issueCardForm.cardMode === 'custom') {
+    if (!issueCardForm.customAmount || issueCardForm.customAmount <= 0) {
+      ElMessage.warning('请输入有效的自定义金额');
+      return;
+    }
+    
+    if (issueCardForm.discountMode === 'existing' && !issueCardForm.existingDiscountCardTypeId) {
+      ElMessage.warning('请选择折扣率参照的卡类型');
+      return;
+    }
+    
+    if (issueCardForm.discountMode === 'custom' && (!issueCardForm.customDiscountRate || issueCardForm.customDiscountRate <= 0)) {
+      ElMessage.warning('请输入有效的自定义折扣率');
+      return;
+    }
   }
   isIssuing.value = true;
   try {
     const payload = {
         memberId: member.value.id,
-        cardTypeId: issueCardForm.cardTypeId,
         paymentMethod: issueCardForm.paymentMethod,
         ...(issueCardForm.staffId && { staffId: issueCardForm.staffId }),
     };
+    
+    if (issueCardForm.cardMode === 'standard') {
+      // 标准会员卡
+      payload.cardTypeId = issueCardForm.cardTypeId;
+    } else {
+      // 自定义面值卡
+      payload.isCustomCard = true;
+      payload.customAmount = issueCardForm.customAmount;
+      
+      if (issueCardForm.discountMode === 'existing') {
+        payload.discountSource = 'card_type';
+        payload.cardTypeId = issueCardForm.existingDiscountCardTypeId;
+      } else {
+        payload.discountSource = 'custom';
+        payload.customDiscountRate = issueCardForm.customDiscountRate;
+        // 对于自定义折扣率，我们仍需要一个参考卡类型来获取其他属性
+        payload.cardTypeId = availableCardTypes.value[0]?.id;
+      }
+    }
     await issueCardWithTransaction(payload);
     ElMessage.success('办卡成功，并已生成消费记录！');
     
@@ -234,17 +497,18 @@ const emit = defineEmits(['success']);
 
 const totalActiveBalance = computed(() => {
   if (!member.value || !member.value.cards) {
-    return new Decimal(0);
+    return '0.00';
   }
-  return member.value.cards
+  const sum = member.value.cards
     .filter(card => card.status === 'ACTIVE')
-    .reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
+    .reduce((acc, card) => acc.plus(toDecimal(card.balance)), toDecimal(0));
+  return sum.toFixed(2);
 });
 
 // 获取有效的会员卡状态文本（考虑余额）
 const getEffectiveCardStatusText = (card) => {
   // 如果余额为0，优先显示"余额已用尽"
-  if (new Decimal(card.balance).isZero()) {
+  if (toDecimal(card.balance).isZero()) {
     return '余额已用尽';
   }
   // 否则显示原始状态
@@ -254,18 +518,34 @@ const getEffectiveCardStatusText = (card) => {
 // 获取有效的会员卡状态标签类型（考虑余额）
 const getEffectiveCardStatusTagType = (card) => {
   // 如果余额为0，使用 info 类型
-  if (new Decimal(card.balance).isZero()) {
+  if (toDecimal(card.balance).isZero()) {
     return 'info';
   }
   // 否则使用原始状态对应的类型
   return cardStatusTagType(card.status);
 };
 
+// 获取卡片显示名称（区分自定义面值卡）
+const getCardDisplayName = (card) => {
+  if (card.isCustomCard && card.customAmount) {
+    return `自定义面值卡(¥${formatAmount(card.customAmount)})`;
+  }
+  return card.cardType.name;
+};
+
+// 获取卡片折扣信息显示
+const getCardDiscountDisplay = (card) => {
+  if (card.discountSource === 'custom' && card.customDiscountRate) {
+    return formatDiscountRate(card.customDiscountRate);
+  }
+  return formatDiscountRate(card.cardType.discountRate);
+};
+
 // 计算属性：所有有效的会员卡（余额 > 0）
 const activeCards = computed(() => {
   if (!member.value?.cards) return [];
   return member.value.cards.filter(card => 
-    new Decimal(card.balance).greaterThan(0) && card.status === 'ACTIVE'
+    toDecimal(card.balance).greaterThan(0) && card.status === 'ACTIVE'
   );
 });
 
@@ -273,7 +553,7 @@ const activeCards = computed(() => {
 const depletedCards = computed(() => {
   if (!member.value?.cards) return [];
   return member.value.cards.filter(card => 
-    new Decimal(card.balance).isZero()
+    toDecimal(card.balance).isZero()
   );
 });
 
@@ -309,6 +589,82 @@ const loadMoreDepletedCards = async () => {
   loadingMoreCards.value = false;
 };
 
+// 打开挂账对话框
+const openPendingDialog = () => {
+  // 设置默认时间为当前时间
+  pendingForm.createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  showPendingDialog.value = true;
+};
+
+// 取消挂账对话框
+const cancelPendingDialog = () => {
+  pendingForm.amount = null;
+  pendingForm.description = '';
+  pendingForm.createdAt = null;
+  showPendingDialog.value = false;
+};
+
+// 添加挂账
+const handleAddPending = async () => {
+  try {
+    const amount = parseFloat(pendingForm.amount);
+    if (!amount || amount <= 0) {
+      ElMessage.warning('请输入有效的挂账金额');
+      return;
+    }
+
+    const data = {
+      amount: amount,
+      description: pendingForm.description || null,
+      createdAt: pendingForm.createdAt || new Date().toISOString()
+    };
+
+    await addPendingPayment(member.value.id, data);
+    ElMessage.success('挂账添加成功');
+    
+    // 重新加载挂账列表
+    const updatedPendingData = await getPendingPayments(member.value.id);
+    pendingPayments.value = updatedPendingData;
+    
+    // 重置表单并关闭对话框
+    cancelPendingDialog();
+    
+    emit('success');
+  } catch (error) {
+    ElMessage.error('挂账添加失败');
+  }
+};
+
+// 删除单个挂账记录
+const handleDeletePendingPayment = async (pendingId) => {
+  try {
+    await deletePendingPayment(member.value.id, pendingId);
+    ElMessage.success('挂账记录已删除');
+    
+    // 从本地列表中移除该记录
+    pendingPayments.value = pendingPayments.value.filter(p => p.id !== pendingId);
+    
+    emit('success');
+  } catch (error) {
+    ElMessage.error('删除挂账记录失败');
+  }
+};
+
+// 清除所有挂账
+const handleClearAllPending = async () => {
+  try {
+    await clearAllPendingPayments(member.value.id);
+    ElMessage.success('所有挂账已清除');
+    
+    // 清空本地挂账列表
+    pendingPayments.value = [];
+    
+    emit('success');
+  } catch (error) {
+    ElMessage.error('清除挂账失败');
+  }
+};
+
 defineExpose({ open });
 </script>
 
@@ -322,6 +678,50 @@ defineExpose({ open });
   border-radius: 4px;
   background-color: #fafafa;
   margin-bottom: 10px;
+}
+
+/* 余额已用尽卡片的紧凑样式 */
+.card-item.depleted-card {
+  padding: 4px 10px;
+  background-color: #f8f8f8;
+  opacity: 0.6;
+  margin-bottom: 3px;
+  min-height: 32px;
+  align-items: flex-start;
+}
+
+.card-item.depleted-card .card-info {
+  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.card-item.depleted-card .card-name {
+  font-size: 13px;
+  color: #909399;
+  line-height: 1.2;
+}
+
+.card-item.depleted-card .card-details-right {
+  font-size: 11px;
+  line-height: 1.2;
+  align-self: flex-end;
+}
+
+.card-item.depleted-card .card-balance span {
+  color: #c0c4cc;
+  font-weight: normal;
+  font-size: 11px;
+}
+
+.card-item.depleted-card .card-issue-date {
+  color: #c0c4cc;
+  font-size: 10px;
+}
+
+.card-item.depleted-card .el-tag {
+  transform: scale(0.85);
+  margin-left: -2px;
 }
 .card-info { display: flex; align-items: center; gap: 10px; }
 .card-name { font-weight: 500; }
@@ -348,9 +748,129 @@ defineExpose({ open });
 .card-details-right {
   text-align: right;
 }
+.discount-tag {
+  font-size: 12px;
+  color: #E6A23C;
+  font-weight: bold;
+  margin-left: 8px;
+}
 .card-issue-date {
   font-size: 12px;
   color: #909399;
   margin-top: 4px;
+}
+
+/* 挂账样式 */
+.pending-section {
+  padding: 10px;
+  background-color: #f9f9f9;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.pending-list {
+  margin-bottom: 10px;
+}
+
+.pending-col {
+  margin-bottom: 6px;
+}
+
+.pending-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background-color: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 3px;
+  min-height: 50px;
+}
+
+.pending-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pending-amount {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f56c6c;
+  line-height: 1.2;
+}
+
+.pending-description {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-date {
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.1;
+}
+
+.delete-btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  height: 24px;
+}
+
+.pending-total {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.total-label {
+  font-size: 13px;
+  color: #606266;
+}
+
+.total-amount {
+  font-size: 14px;
+  font-weight: bold;
+  color: #409eff;
+}
+
+.pending-actions {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background-color: #f0f9ff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.no-pending {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.no-pending span {
+  color: #909399;
+  font-style: italic;
+  font-size: 13px;
 }
 </style>

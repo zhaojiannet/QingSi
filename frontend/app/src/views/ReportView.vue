@@ -88,16 +88,16 @@
             <el-table-column label="手机号" width="120">
               <template #default="{ row }">{{ row.member?.phone || '-' }}</template>
             </el-table-column>
-            <el-table-column label="会员卡" width="150">
+            <el-table-column label="会员卡" width="220">
               <template #default="{ row }">
                 <!-- 多卡支付显示所有卡片 -->
                 <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
                   <div v-for="cardInfo in getMultiCardList(row)" :key="cardInfo.name" class="card-item">
-                    <el-tag type="warning" size="small">{{ cardInfo.name }}</el-tag>
+                    <el-tag type="warning" size="small" class="card-tag">{{ cardInfo.name }}</el-tag>
                   </div>
                 </div>
                 <!-- 单卡支付 -->
-                <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small">
+                <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small" class="card-tag">
                   {{ row.cardUsed.cardType?.name || '会员卡' }}
                 </el-tag>
                 <span v-else>-</span>
@@ -118,7 +118,7 @@
               <template #default="{ row }">{{ row.staff?.name || '-' }}</template>
             </el-table-column>
             <el-table-column label="应付金额" width="90" align="right">
-              <template #default="{ row }">¥{{ row.totalAmount }}</template>
+              <template #default="{ row }">{{ formatCurrency(row.totalAmount) }}</template>
             </el-table-column>
             <el-table-column label="折扣" width="180" align="left">
               <template #default="{ row }">
@@ -133,22 +133,22 @@
                   <div v-if="isMultiCardPayment(row)" class="multi-card-payment">
                     <el-tag type="warning" size="small" class="multi-card-tag">
                       <el-icon><CreditCard /></el-icon>
-                      多卡 {{ getAverageDiscountDisplay(row) }}折 ¥{{ row.discountAmount }}
+                      多卡 {{ getAverageDiscountDisplay(row) }}折 {{ formatCurrency(row.discountAmount) }}
                     </el-tag>
                     <div class="multi-card-details">
                       {{ getMultiCardDetails(row) }}
                     </div>
                   </div>
-                  <!-- 单卡支付 -->
+                  <!-- 单卡支付：有cardUsed信息 -->
                   <div v-else-if="row.cardUsed">
                     <el-tag type="primary" size="small">
-                      {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 ¥ {{ row.discountAmount }}
+                      {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 {{ formatCurrency(row.discountAmount) }}
                     </el-tag>
                   </div>
-                  <!-- 其他会员卡支付 -->
+                  <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
                   <div v-else>
-                    <el-tag type="success" size="small">
-                      会员卡 ¥{{ row.discountAmount }}
+                    <el-tag type="primary" size="small">
+                      {{ getSingleCardDiscountDisplay(row) }}
                     </el-tag>
                   </div>
                 </div>
@@ -157,7 +157,7 @@
             </el-table-column>
             <el-table-column label="实付金额" width="90" align="right">
               <template #default="{ row }">
-                <span class="paid-amount">¥{{ row.actualPaidAmount }}</span>
+                <span class="paid-amount">{{ formatCurrency(row.actualPaidAmount) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="transactionTime" label="时间" width="150" align="center">
@@ -181,7 +181,7 @@
                   :loading="transactionList.searchLoading"
                   type="primary"
                   size="small"
-                  plain
+                  style="padding: 12px 24px; border-radius: 6px;"
                 >
                   {{ transactionList.searchLoading ? '加载中...' : `加载更多 (已显示 ${transactionList.data.length}/${transactionList.pagination.total} 条)` }}
                 </el-button>
@@ -231,7 +231,7 @@
       
       <!-- 项目消费排行 -->
       <el-tab-pane label="项目消费排行" name="serviceRanking">
-         <el-table :data="serviceRanking.data" v-loading="serviceRanking.loading" stripe max-height="600">
+         <el-table :data="serviceRanking.data" v-loading="serviceRanking.loading" stripe style="width: 100%">
            <el-table-column type="index" label="排名" width="80" />
            <el-table-column prop="serviceName" label="项目名称" />
            <el-table-column prop="totalSales" label="销售总额(元)" align="right" sortable />
@@ -244,9 +244,10 @@
                @click="loadMoreServiceRanking" 
                :loading="serviceRanking.loadingMore"
                type="primary"
-               size="default"
+               size="small"
+               style="padding: 12px 24px; border-radius: 6px;"
              >
-               加载更多
+               {{ serviceRanking.loadingMore ? '加载中...' : `加载更多 (已显示 ${serviceRanking.data.length}/${serviceRanking.total || serviceRanking.data.length} 条)` }}
              </el-button>
              <div v-else class="all-loaded">已加载全部数据</div>
            </div>
@@ -255,7 +256,7 @@
 
       <!-- 会员消费排行 -->
       <el-tab-pane label="会员消费排行" name="memberRanking">
-        <el-table :data="memberRanking.data" v-loading="memberRanking.loading" stripe max-height="600">
+        <el-table :data="memberRanking.data" v-loading="memberRanking.loading" stripe style="width: 100%">
            <el-table-column type="index" label="排名" width="80" />
            <el-table-column prop="memberName" label="会员姓名" />
            <el-table-column prop="memberPhone" label="手机号" />
@@ -268,9 +269,10 @@
               @click="loadMoreMemberRanking" 
               :loading="memberRanking.loadingMore"
               type="primary"
-              size="default"
+              size="small"
+              style="padding: 12px 24px; border-radius: 6px;"
             >
-              加载更多
+              {{ memberRanking.loadingMore ? '加载中...' : `加载更多 (已显示 ${memberRanking.data.length}/${memberRanking.total || memberRanking.data.length} 条)` }}
             </el-button>
             <div v-else class="all-loaded">已加载全部数据</div>
           </div>
@@ -325,11 +327,73 @@
 
         </el-table>
       </el-tab-pane>
+
+      <!-- 挂账统计 -->
+      <el-tab-pane label="挂账统计" name="pendingStats">
+        <div class="tip">会员挂账明细统计</div>
+        <div class="pending-summary">
+          <el-row :gutter="20" v-loading="pendingStats.loading" class="stats-cards">
+            <el-col :span="6" :xs="12">
+              <el-statistic title="总挂账金额 (元)" :value="pendingStats.summary.totalAmount" />
+            </el-col>
+            <el-col :span="6" :xs="12">
+              <el-statistic title="挂账会员数" :value="pendingStats.summary.memberCount" />
+            </el-col>
+            <el-col :span="6" :xs="12">
+              <el-statistic title="挂账记录数" :value="pendingStats.summary.recordCount" />
+            </el-col>
+            <el-col :span="6" :xs="12">
+              <el-statistic title="平均挂账金额 (元)" :value="pendingStats.summary.averageAmount" />
+            </el-col>
+          </el-row>
+        </div>
+        
+        <el-table :data="pendingStats.data" v-loading="pendingStats.loading" stripe style="width: 100%">
+          <el-table-column prop="name" label="会员姓名" width="120" />
+          <el-table-column prop="phone" label="手机号" width="150" />
+          <el-table-column label="挂账总额" width="120" align="right">
+            <template #default="{ row }">
+              <span class="pending-amount">{{ formatCurrency(row.totalPending) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="记录数" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" type="info">{{ row.recordCount }}条</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="备注" min-width="200">
+            <template #default="{ row }">
+              <div class="notes-list">
+                <div v-for="(payment, index) in row.payments.slice(0, 2)" :key="payment.id" class="note-item">
+                  <span v-if="payment.description" class="note-desc">{{ payment.description }}</span>
+                  <span v-else class="no-desc">-</span>
+                </div>
+                <div v-if="row.payments.length > 2" class="more-notes">
+                  ...还有 {{ row.payments.length - 2 }} 条
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        
+        <!-- 加载更多按钮 -->
+        <div v-if="pendingStats.hasMore" class="load-more-container" style="margin-top: 20px;">
+          <el-button 
+            @click="loadMorePendingStats" 
+            :loading="pendingStats.loadingMore"
+            type="primary"
+            size="small"
+            style="padding: 12px 24px; border-radius: 6px;"
+          >
+            {{ pendingStats.loadingMore ? '加载中...' : `加载更多 (已显示 ${pendingStats.data.length}/${pendingStats.total} 条)` }}
+          </el-button>
+        </div>
+      </el-tab-pane>
         
       <!-- 沉睡会员 -->
       <el-tab-pane label="沉睡会员" name="sleepingMembers">
         <div class="tip">超过90天未产生任何消费的活跃会员</div>
-        <el-table :data="sleepingMembers.data" v-loading="sleepingMembers.loading" stripe max-height="600">
+        <el-table :data="sleepingMembers.data" v-loading="sleepingMembers.loading" stripe style="width: 100%">
            <el-table-column prop="name" label="姓名" />
            <el-table-column prop="phone" label="手机号" />
            <el-table-column prop="registrationDate" label="注册日期">
@@ -349,9 +413,10 @@
               @click="loadMoreSleepingMembers" 
               :loading="sleepingMembers.loadingMore"
               type="primary"
-              size="default"
+              size="small"
+              style="padding: 12px 24px; border-radius: 6px;"
             >
-              加载更多
+              {{ sleepingMembers.loadingMore ? '加载中...' : `加载更多 (已显示 ${sleepingMembers.data.length}/${sleepingMembers.total || sleepingMembers.data.length} 条)` }}
             </el-button>
             <div v-else class="all-loaded">已加载全部数据</div>
           </div>
@@ -369,11 +434,12 @@ import { PieChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
 import { Search, CreditCard } from '@element-plus/icons-vue';
-import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary } from '@/api/report.js';
+import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary, getPendingStats } from '@/api/report.js';
 import { getTransactionsByDateRange } from '@/api/transaction.js';
 import { useSystemStore } from '@/stores/system';
 import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
+import { formatCurrency } from '@/utils/currency.js';
 
 use([
   CanvasRenderer,
@@ -438,6 +504,20 @@ const sleepingMembers = reactive({
   data: [], 
   page: 1, 
   hasMore: false 
+});
+const pendingStats = reactive({
+  loading: false,
+  loadingMore: false,
+  data: [],
+  page: 1,
+  hasMore: false,
+  total: 0,
+  summary: {
+    totalAmount: 0,
+    memberCount: 0,
+    recordCount: 0,
+    averageAmount: 0
+  }
 });
 
 // --- 会员搜索和过滤 ---
@@ -782,8 +862,9 @@ const getMultiCardList = (transaction) => {
     // 按 + 分割，提取卡片名称
     const cardParts = cardsText.split(' + ');
     return cardParts.map(part => {
-      // 提取卡片名称（去掉金额部分）
-      const cardMatch = part.match(/^([^¥]+)/);
+      // 提取卡片名称（去掉最后的金额部分）
+      // 修复：匹配到最后一个¥符号之前的内容，而不是第一个¥
+      const cardMatch = part.match(/^(.+?)¥[\d.]+$/);
       return {
         name: cardMatch ? cardMatch[1].trim() : part.trim()
       };
@@ -927,6 +1008,57 @@ const fetchSleepingMembers = async (reset = true) => {
   }
 };
 
+const fetchPendingStats = async (reset = true) => {
+  if (reset) {
+    pendingStats.loading = true;
+    pendingStats.page = 1;
+    pendingStats.data = [];
+  } else {
+    pendingStats.loadingMore = true;
+  }
+  
+  try {
+    const params = { page: pendingStats.page, limit: 25 };
+    const response = await getPendingStats(params);
+    
+    if (reset) {
+      pendingStats.data = response.data || [];
+      pendingStats.summary = response.summary || {
+        totalAmount: 0,
+        memberCount: 0,
+        recordCount: 0,
+        averageAmount: 0
+      };
+    } else {
+      pendingStats.data.push(...(response.data || []));
+    }
+    
+    pendingStats.total = response.total || 0;
+    pendingStats.hasMore = response.hasMore || false;
+  } catch (error) {
+    // Error loading pending stats - handled silently
+    if (reset) {
+      pendingStats.data = [];
+      pendingStats.summary = {
+        totalAmount: 0,
+        memberCount: 0,
+        recordCount: 0,
+        averageAmount: 0
+      };
+    }
+  } finally {
+    pendingStats.loading = false;
+    pendingStats.loadingMore = false;
+  }
+};
+
+const loadMorePendingStats = async () => {
+  if (pendingStats.loadingMore || !pendingStats.hasMore) return;
+  
+  pendingStats.page++;
+  await fetchPendingStats(false);
+};
+
 // --- 日期控制 ---
 const handleDateChange = () => {
     quickDate.value = ''; 
@@ -1004,7 +1136,8 @@ watch(activeTab, (newTab) => {
     serviceRanking,
     memberRanking,
     birthdayReminders,
-    sleepingMembers
+    sleepingMembers,
+    pendingStats
   };
   const dataStore = dataStores[newTab];
 
@@ -1017,6 +1150,7 @@ watch(activeTab, (newTab) => {
       memberRanking: fetchMemberRanking,
       birthdayReminders: fetchBirthdayReminders,
       sleepingMembers: fetchSleepingMembers,
+      pendingStats: fetchPendingStats,
     };
     const loadFunc = tabLoadFunctions[newTab];
     if (loadFunc) {
@@ -1213,10 +1347,105 @@ const loadMoreSleepingMembers = async () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
 }
 
 .multi-card-list .card-item {
   display: flex;
+  margin-bottom: 2px;
+  width: 100%;
+}
+
+.card-tag {
+  max-width: 100%;
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.2;
+  height: auto;
+  padding: 2px 6px;
+  display: inline-block;
+  overflow: visible;
+}
+
+/* 挂账统计样式 */
+.pending-summary {
+  margin-bottom: 20px;
+}
+
+.pending-amount {
+  font-weight: bold;
+  color: #f56c6c;
+}
+
+.pending-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.payment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.payment-amount {
+  font-weight: bold;
+  color: #f56c6c;
+  min-width: 60px;
+}
+
+.payment-date {
+  color: #909399;
+  font-size: 11px;
+  min-width: 80px;
+}
+
+.payment-desc {
+  color: #606266;
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more-payments {
+  color: #909399;
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* 备注列样式 */
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-item {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.note-desc {
+  color: #606266;
+}
+
+.no-desc {
+  color: #C0C4CC;
+  font-style: italic;
+}
+
+.more-notes {
+  color: #909399;
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 2px;
 }
 
 </style>
