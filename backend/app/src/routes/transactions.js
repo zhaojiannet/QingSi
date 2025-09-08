@@ -594,9 +594,18 @@ export default async function (fastify, opts) {
           member: { select: { name: true, phone: true } },
           staff: { select: { name: true } },
           cardUsed: { 
-            include: { 
-              cardType: { select: { name: true, discountRate: true } } 
-            } 
+            select: {
+              id: true,
+              isCustomCard: true,
+              customAmount: true,
+              customDiscountRate: true,
+              cardType: { 
+                select: { 
+                  name: true, 
+                  discountRate: true 
+                } 
+              }
+            }
           },
           items: { 
             include: { 
@@ -609,12 +618,26 @@ export default async function (fastify, opts) {
         take: limitNum,
       });
 
-      const formattedTransactions = transactions.map(t => ({
-        ...t,
-        totalAmount: new Decimal(t.totalAmount).toFixed(2),
-        actualPaidAmount: new Decimal(t.actualPaidAmount).toFixed(2),
-        discountAmount: new Decimal(t.discountAmount).toFixed(2),
-      }));
+      const formattedTransactions = transactions.map(t => {
+        // 处理卡片显示名称
+        let cardDisplayName = null;
+        if (t.cardUsed) {
+          if (t.cardUsed.isCustomCard) {
+            const discountRate = t.cardUsed.customDiscountRate || t.cardUsed.cardType.discountRate;
+            cardDisplayName = `自定义面值卡(¥${new Decimal(t.cardUsed.customAmount).toFixed(2)}) ${discountRate * 10}折`;
+          } else {
+            cardDisplayName = t.cardUsed.cardType.name;
+          }
+        }
+        
+        return {
+          ...t,
+          totalAmount: new Decimal(t.totalAmount).toFixed(2),
+          actualPaidAmount: new Decimal(t.actualPaidAmount).toFixed(2),
+          discountAmount: new Decimal(t.discountAmount).toFixed(2),
+          cardDisplayName: cardDisplayName
+        };
+      });
 
       return {
         data: formattedTransactions,
@@ -702,6 +725,9 @@ export default async function (fastify, opts) {
           cardUsed: { 
             select: {
               id: true,
+              isCustomCard: true,
+              customAmount: true,
+              customDiscountRate: true,
               cardType: { 
                 select: { 
                   name: true, 
@@ -734,12 +760,26 @@ export default async function (fastify, opts) {
       prisma.transaction.count({ where })
     ]);
 
-    const formattedTransactions = transactions.map(t => ({
-      ...t,
-      totalAmount: new Decimal(t.totalAmount).toFixed(2),
-      actualPaidAmount: new Decimal(t.actualPaidAmount).toFixed(2),
-      discountAmount: new Decimal(t.discountAmount).toFixed(2),
-    }));
+    const formattedTransactions = transactions.map(t => {
+      // 处理卡片显示名称
+      let cardDisplayName = null;
+      if (t.cardUsed) {
+        if (t.cardUsed.isCustomCard) {
+          const discountRate = t.cardUsed.customDiscountRate || t.cardUsed.cardType.discountRate;
+          cardDisplayName = `自定义面值卡(¥${new Decimal(t.cardUsed.customAmount).toFixed(2)}) ${discountRate * 10}折`;
+        } else {
+          cardDisplayName = t.cardUsed.cardType.name;
+        }
+      }
+      
+      return {
+        ...t,
+        totalAmount: new Decimal(t.totalAmount).toFixed(2),
+        actualPaidAmount: new Decimal(t.actualPaidAmount).toFixed(2),
+        discountAmount: new Decimal(t.discountAmount).toFixed(2),
+        cardDisplayName: cardDisplayName
+      };
+    });
 
     // 返回分页结果
     return {

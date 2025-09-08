@@ -249,7 +249,7 @@
             </div>
             <!-- 单卡支付 -->
             <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small">
-              {{ row.cardUsed.cardType?.name || '会员卡' }}
+              {{ row.cardDisplayName || row.cardUsed.cardType?.name || '会员卡' }}
             </el-tag>
             <span v-else>-</span>
           </template>
