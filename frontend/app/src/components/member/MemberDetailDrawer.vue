@@ -49,7 +49,15 @@
               <div class="pending-item">
                 <div class="pending-info">
                   <span class="pending-amount">¥{{ formatAmount(payment.amount) }}</span>
-                  <span class="pending-description" v-if="payment.description">{{ payment.description }}</span>
+                  <el-tooltip 
+                    v-if="payment.description" 
+                    :content="payment.description" 
+                    :disabled="!shouldShowTooltip(payment)"
+                    placement="top"
+                    effect="dark"
+                  >
+                    <span class="pending-description">{{ payment.description }}</span>
+                  </el-tooltip>
                   <span class="pending-date">{{ formatDateInAppTimeZone(payment.createdAt) }}</span>
                 </div>
                 <el-button 
@@ -663,6 +671,11 @@ const handleClearAllPending = async () => {
   } catch (error) {
     ElMessage.error('清除挂账失败');
   }
+};
+
+// 判断是否需要显示tooltip（备注过长时显示）
+const shouldShowTooltip = (payment) => {
+  return payment.description && payment.description.length > 15;
 };
 
 defineExpose({ open });
