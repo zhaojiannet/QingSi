@@ -695,41 +695,53 @@ defineExpose({ open });
 
 /* 余额已用尽卡片的紧凑样式 */
 .card-item.depleted-card {
-  padding: 4px 10px;
+  padding: 6px 10px;
   background-color: #f8f8f8;
   opacity: 0.6;
   margin-bottom: 3px;
-  min-height: 32px;
-  align-items: flex-start;
+  min-height: 36px;
+  align-items: center;
 }
 
 .card-item.depleted-card .card-info {
-  gap: 6px;
-  flex-direction: column;
-  align-items: flex-start;
+  gap: 8px;
+  flex-direction: row;
+  align-items: center;
+  flex: 1;
 }
 
 .card-item.depleted-card .card-name {
-  font-size: 13px;
+  font-size: 12px;
   color: #909399;
-  line-height: 1.2;
+  line-height: 1.4;
 }
 
 .card-item.depleted-card .card-details-right {
   font-size: 11px;
-  line-height: 1.2;
-  align-self: flex-end;
+  line-height: 1.4;
+  align-self: center;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+}
+
+.card-item.depleted-card .card-balance {
+  white-space: nowrap;
+  color: #909399;
+  font-size: 11px;
 }
 
 .card-item.depleted-card .card-balance span {
-  color: #c0c4cc;
+  color: #909399;
   font-weight: normal;
   font-size: 11px;
 }
 
 .card-item.depleted-card .card-issue-date {
-  color: #c0c4cc;
-  font-size: 10px;
+  color: #909399;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .card-item.depleted-card .el-tag {
