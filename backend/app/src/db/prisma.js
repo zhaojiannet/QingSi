@@ -4,7 +4,7 @@ import pkg from '@prisma/client';
 const { PrismaClient } = pkg;
 
 // 配置连接池和日志
-const prisma = new PrismaClient({
+let prisma = new PrismaClient({
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
@@ -23,19 +23,25 @@ const prisma = new PrismaClient({
   errorFormat: process.env.NODE_ENV === 'development' ? 'pretty' : 'minimal',
 });
 
-// 开发环境下记录慢查询
+// 开发环境下记录慢查询 - 使用新的Client Extensions替代废弃的middleware
 if (process.env.NODE_ENV === 'development') {
-  prisma.$use(async (params, next) => {
-    const before = Date.now();
-    const result = await next(params);
-    const after = Date.now();
-    
-    // 记录超过100ms的查询
-    if (after - before > 100) {
-      console.log(`Slow query (${after - before}ms): ${params.model}.${params.action}`);
-    }
-    
-    return result;
+  prisma = prisma.$extends({
+    name: 'performance-logger',
+    query: {
+      $allOperations({ model, operation, args, query }) {
+        const before = Date.now();
+        const result = query(args);
+        const after = Date.now();
+        const duration = after - before;
+        
+        // 记录超过100ms的查询
+        if (duration > 100) {
+          console.log(`Slow query (${duration}ms): ${model}.${operation}`);
+        }
+        
+        return result;
+      },
+    },
   });
 }
 
