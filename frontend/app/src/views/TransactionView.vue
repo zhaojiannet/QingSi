@@ -914,9 +914,41 @@ const displayActualPaidAmount = computed(() => {
   if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
     return new Decimal(manualPriceAdjustment.adjustedAmount);
   }
+  
+  // 会员卡支付时，显示应付金额（折扣后），而不是实际扣款金额
+  if (form.paymentMethod === 'MEMBER_CARD' && selectedMember.value) {
+    // 计算理论上的折扣后应付金额
+    if (availableCards.value.length > 0) {
+      // 使用选中的卡片或第一张卡片
+      const card = form.cardId 
+        ? availableCards.value.find(c => c.id === form.cardId)
+        : availableCards.value[0];
+      if (card) {
+        const discountRate = getCardDiscountRate(card);
+        const discountableDeduction = discountableAmount.value.times(discountRate);
+        return discountableDeduction.plus(noDiscountAmount.value);
+      }
+    }
+  }
+  
   return new Decimal(paymentPlan.value.actualPaidAmount || 0);
 });
-const displayDiscountAmount = computed(() => new Decimal(paymentPlan.value.discountAmount || 0));
+const displayDiscountAmount = computed(() => {
+  // 会员卡支付时，计算理论上的折扣金额
+  if (form.paymentMethod === 'MEMBER_CARD' && selectedMember.value && availableCards.value.length > 0) {
+    const card = form.cardId 
+      ? availableCards.value.find(c => c.id === form.cardId)
+      : availableCards.value[0];
+    if (card) {
+      const discountRate = getCardDiscountRate(card);
+      const discountableOriginalAmount = discountableAmount.value;
+      const discountableDiscountedAmount = discountableOriginalAmount.times(discountRate);
+      return discountableOriginalAmount.minus(discountableDiscountedAmount);
+    }
+  }
+  
+  return new Decimal(paymentPlan.value.discountAmount || 0);
+});
 
 // 计算价格调整差额
 const adjustmentDifferenceText = computed(() => {
@@ -951,7 +983,28 @@ const averageDiscountRateText = computed(() => {
 
 const isCheckoutReady = computed(() => {
   if (cartItems.value.length === 0) return false;
-  if (form.paymentMethod === 'MEMBER_CARD' && paymentPlan.value.error) return false;
+  
+  // 会员卡支付时的检查
+  if (form.paymentMethod === 'MEMBER_CARD') {
+    // 必须选择了会员
+    if (!selectedMember.value) return false;
+    
+    // 如果有手动价格调整，检查调整后金额
+    if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
+      // 手动模式：检查选中卡片余额
+      if (cardPaymentMode.value === 'manual' && form.cardId) {
+        const card = availableCards.value.find(c => c.id === form.cardId);
+        return card && manualPriceAdjustment.adjustedAmount <= parseFloat(card.balance);
+      }
+      // 自动模式：检查总余额
+      const totalBalance = availableCards.value.reduce((sum, card) => sum + parseFloat(card.balance), 0);
+      return manualPriceAdjustment.adjustedAmount <= totalBalance;
+    }
+    
+    // 正常情况下，如果有错误（余额不足）则不能结算
+    if (paymentPlan.value.error) return false;
+  }
+  
   return true;
 });
 
