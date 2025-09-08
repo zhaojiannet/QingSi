@@ -98,7 +98,8 @@ export default async function (fastify, opts) {
                     }
                   }
                 }
-              }
+              },
+              pendingPayments: true
             }
           }),
           prisma.member.count({ where }),
