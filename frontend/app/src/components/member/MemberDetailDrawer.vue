@@ -32,6 +32,174 @@
         <el-descriptions-item label="备注" :span="2">{{ member.notes || '无' }}</el-descriptions-item>
       </el-descriptions>
 
+      <el-divider>名下会员卡</el-divider>
+      
+      <div v-if="member.cards && member.cards.length > 0">
+        <!-- 显示当前可见的会员卡 -->
+        <div v-for="card in visibleCards" :key="card.id" :class="['card-item', { 'depleted-card': toDecimal(card.balance).isZero() }]">
+          <div class="card-info">
+            <span class="card-name">{{ getCardDisplayName(card) }} <span class="discount-tag">{{ getCardDiscountDisplay(card) }}</span></span>
+            <el-tag size="small" :type="getEffectiveCardStatusTagType(card)">{{ getEffectiveCardStatusText(card) }}</el-tag>
+          </div>
+          <div class="card-details-right">
+            <div class="card-balance">
+              余额: <span>{{ formatCurrency(card.balance) }}</span>
+            </div>
+            <div class="card-issue-date">
+              办卡: <el-tooltip
+                :content="formatFullDateTimeInAppTimeZone(card.issueDate)"
+                placement="top"
+                effect="dark"
+              >
+                {{ formatShortDateInAppTimeZone(card.issueDate) }}
+              </el-tooltip>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 加载更多按钮 -->
+        <div v-if="hasMoreDepletedCards" class="load-more-section">
+          <el-button 
+            type="primary" 
+            plain
+            style="width: 100%; margin: 15px 0;" 
+            @click="loadMoreDepletedCards"
+            :loading="loadingMoreCards"
+          >
+            加载更多会员卡 ({{ remainingDepletedCardsCount }} 张余额已用尽)
+          </el-button>
+        </div>
+        
+        <div class="card-item total-balance">
+          <span class="card-name">所有有效卡总余额</span>
+          <div class="card-balance">
+            <span>{{ formatCurrency(totalActiveBalance) }}</span>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="暂无会员卡" />
+
+      <el-divider>办理新卡</el-divider>
+      <div class="issue-card-section">
+        <el-form :model="issueCardForm" label-position="top" class="compact-form">
+          <!-- 办卡类型选择 -->
+          <el-form-item label="办卡类型" class="card-type-selector">
+            <el-radio-group v-model="issueCardForm.cardMode" @change="onCardModeChange" class="card-mode-group">
+              <el-radio-button value="standard">标准会员卡</el-radio-button>
+              <el-radio-button value="custom">自定义面值卡</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <!-- 统一的卡片配置区域 -->
+          <div class="card-config-area">
+            <!-- 标准卡配置 -->
+            <div v-if="issueCardForm.cardMode === 'standard'" class="config-row">
+              <div class="config-item">
+                <label class="config-label">选择卡类型</label>
+                <el-select v-model="issueCardForm.cardTypeId" placeholder="选择要办理的卡类型" class="config-select">
+                  <el-option
+                    v-for="cardType in availableCardTypes"
+                    :key="cardType.id"
+                    :label="`${cardType.name} (售价: ¥${new Decimal(cardType.initialPrice).toFixed(2)})`"
+                    :value="cardType.id"
+                  />
+                </el-select>
+              </div>
+            </div>
+
+            <!-- 自定义卡配置 -->
+            <div v-if="issueCardForm.cardMode === 'custom'" class="custom-config">
+              <div class="config-row">
+                <div class="config-item">
+                  <label class="config-label">自定义金额 <span class="required">*</span></label>
+                  <el-input-number
+                    v-model="issueCardForm.customAmount"
+                    :min="1"
+                    :max="10000"
+                    :step="10"
+                    :precision="2"
+                    class="config-number"
+                    placeholder="卡片面值"
+                  />
+                </div>
+                <div class="config-item">
+                  <label class="config-label">折扣模式 <span class="required">*</span></label>
+                  <el-select v-model="issueCardForm.discountMode" placeholder="选择折扣模式" class="config-select">
+                    <el-option value="existing" label="参照现有卡类型" />
+                    <el-option value="custom" label="自定义折扣率" />
+                  </el-select>
+                </div>
+              </div>
+
+              <div v-if="issueCardForm.discountMode === 'existing'" class="config-row">
+                <div class="config-item">
+                  <label class="config-label">参照卡类型</label>
+                  <el-select v-model="issueCardForm.existingDiscountCardTypeId" placeholder="选择折扣率参照" class="config-select">
+                    <el-option
+                      v-for="cardType in availableCardTypes"
+                      :key="cardType.id"
+                      :label="`${cardType.name} (${Math.round(cardType.discountRate * 10)}折)`"
+                      :value="cardType.id"
+                    />
+                  </el-select>
+                </div>
+              </div>
+
+              <div v-if="issueCardForm.discountMode === 'custom'" class="config-row">
+                <div class="config-item">
+                  <label class="config-label">自定义折扣率</label>
+                  <el-input-number
+                    v-model="issueCardForm.customDiscountRate"
+                    :min="0.1"
+                    :max="1.0"
+                    :step="0.05"
+                    :precision="2"
+                    class="config-number"
+                    placeholder="如：0.8 表示8折"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 服务员工和支付方式 -->
+          <div class="service-config">
+            <div class="config-row">
+              <div v-if="commissionableStaff.length > 0" class="config-item">
+                <label class="config-label">服务员工</label>
+                <el-select v-model="issueCardForm.staffId" placeholder="选择服务员工" class="config-select" clearable>
+                  <el-option
+                    v-for="staff in commissionableStaff"
+                    :key="staff.id"
+                    :label="`${staff.name} (${staff.position})`"
+                    :value="staff.id"
+                  />
+                </el-select>
+              </div>
+              <div class="config-item">
+                <label class="config-label">支付方式 <span class="required">*</span></label>
+                <el-select v-model="issueCardForm.paymentMethod" placeholder="选择支付方式" class="config-select">
+                  <el-option value="CASH" label="现金" />
+                  <el-option value="WECHAT_PAY" label="微信" />
+                  <el-option value="ALIPAY" label="支付宝" />
+                  <el-option value="DOUYIN" label="抖音" />
+                  <el-option value="MEITUAN" label="美团" />
+                </el-select>
+              </div>
+            </div>
+          </div>
+        </el-form>
+        <el-button 
+          type="success" 
+          style="width: 100%; margin-top: 10px;" 
+          @click="handleIssueCard" 
+          :loading="isIssuing"
+          :disabled="!isValidCardForm"
+        >
+          确认办理 {{ issueCardForm.cardMode === 'custom' ? '自定义面值卡' : '标准会员卡' }}
+        </el-button>
+      </div>
+
       <!-- 挂账/未结清款项 -->
       <el-divider>挂账/未结清款项</el-divider>
       <div class="pending-section">
@@ -97,154 +265,6 @@
           </el-button>
         </div>
       </div>
-
-      <el-divider>办理新卡</el-divider>
-      <div class="issue-card-section">
-        <el-form :model="issueCardForm" label-position="top">
-          <el-form-item label="办卡类型">
-            <el-radio-group v-model="issueCardForm.cardMode" @change="onCardModeChange">
-              <el-radio-button value="standard">标准会员卡</el-radio-button>
-              <el-radio-button value="custom">自定义面值卡</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-
-          <!-- 标准储值卡选项 -->
-          <el-form-item v-if="issueCardForm.cardMode === 'standard'" label="选择卡类型">
-            <el-select v-model="issueCardForm.cardTypeId" placeholder="选择要办理的卡类型" style="width: 100%;">
-              <el-option
-                v-for="cardType in availableCardTypes"
-                :key="cardType.id"
-                :label="`${cardType.name} (售价: ¥${new Decimal(cardType.initialPrice).toFixed(2)})`"
-                :value="cardType.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <!-- 自定义面值卡选项 -->
-          <template v-if="issueCardForm.cardMode === 'custom'">
-            <el-form-item label="自定义金额" required>
-              <el-input-number
-                v-model="issueCardForm.customAmount"
-                :min="1"
-                :max="10000"
-                :step="10"
-                :precision="2"
-                style="width: 100%"
-                placeholder="请输入卡片面值"
-              />
-              <div class="form-hint">设置这张卡的初始充值金额</div>
-            </el-form-item>
-
-            <el-form-item label="折扣配置" required>
-              <el-radio-group v-model="issueCardForm.discountMode">
-                <el-radio-button value="existing">使用现有卡类型折扣</el-radio-button>
-                <el-radio-button value="custom">自定义折扣率</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-
-            <el-form-item v-if="issueCardForm.discountMode === 'existing'" label="选择折扣卡类型">
-              <el-select v-model="issueCardForm.existingDiscountCardTypeId" placeholder="选择折扣率参照的卡类型" style="width: 100%;">
-                <el-option
-                  v-for="cardType in availableCardTypes"
-                  :key="cardType.id"
-                  :label="`${cardType.name} (${Math.round(cardType.discountRate * 10)}折)`"
-                  :value="cardType.id"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item v-if="issueCardForm.discountMode === 'custom'" label="自定义折扣率">
-              <el-input-number
-                v-model="issueCardForm.customDiscountRate"
-                :min="0.1"
-                :max="1.0"
-                :step="0.05"
-                :precision="2"
-                style="width: 100%"
-                placeholder="例如：0.8 表示8折"
-              />
-              <div class="form-hint">输入0.1-1.0之间的数值，如0.8表示8折</div>
-            </el-form-item>
-          </template>
-          
-          <el-form-item v-if="commissionableStaff.length > 0" label="服务员工 (可选)">
-            <el-select v-model="issueCardForm.staffId" placeholder="选择服务员工" style="width: 100%;" clearable>
-                <el-option
-                    v-for="staff in commissionableStaff"
-                    :key="staff.id"
-                    :label="`${staff.name} (${staff.position})`"
-                    :value="staff.id"
-                />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="支付方式">
-            <el-radio-group v-model="issueCardForm.paymentMethod">
-              <el-radio-button value="CASH">现金</el-radio-button>
-              <el-radio-button value="WECHAT_PAY">微信</el-radio-button>
-              <el-radio-button value="ALIPAY">支付宝</el-radio-button>
-              <el-radio-button value="DOUYIN">抖音</el-radio-button>
-              <el-radio-button value="MEITUAN">美团</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-        </el-form>
-        <el-button 
-          type="success" 
-          style="width: 100%; margin-top: 10px;" 
-          @click="handleIssueCard" 
-          :loading="isIssuing"
-          :disabled="!isValidCardForm"
-        >
-          确认办理 {{ issueCardForm.cardMode === 'custom' ? '自定义面值卡' : '标准会员卡' }}
-        </el-button>
-      </div>
-
-      <el-divider>名下会员卡</el-divider>
-      
-      <div v-if="member.cards && member.cards.length > 0">
-        <!-- 显示当前可见的会员卡 -->
-        <div v-for="card in visibleCards" :key="card.id" :class="['card-item', { 'depleted-card': toDecimal(card.balance).isZero() }]">
-          <div class="card-info">
-            <span class="card-name">{{ getCardDisplayName(card) }} <span class="discount-tag">{{ getCardDiscountDisplay(card) }}</span></span>
-            <el-tag size="small" :type="getEffectiveCardStatusTagType(card)">{{ getEffectiveCardStatusText(card) }}</el-tag>
-          </div>
-          <div class="card-details-right">
-            <div class="card-balance">
-              余额: <span>{{ formatCurrency(card.balance) }}</span>
-            </div>
-            <div class="card-issue-date">
-              办卡: <el-tooltip
-                :content="formatFullDateTimeInAppTimeZone(card.issueDate)"
-                placement="top"
-                effect="dark"
-              >
-                {{ formatShortDateInAppTimeZone(card.issueDate) }}
-              </el-tooltip>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 加载更多按钮 -->
-        <div v-if="hasMoreDepletedCards" class="load-more-section">
-          <el-button 
-            type="primary" 
-            plain
-            style="width: 100%; margin: 15px 0;" 
-            @click="loadMoreDepletedCards"
-            :loading="loadingMoreCards"
-          >
-            加载更多会员卡 ({{ remainingDepletedCardsCount }} 张余额已用尽)
-          </el-button>
-        </div>
-        
-        <div class="card-item total-balance">
-          <span class="card-name">所有有效卡总余额</span>
-          <div class="card-balance">
-            <span>{{ formatCurrency(totalActiveBalance) }}</span>
-          </div>
-        </div>
-      </div>
-      <el-empty v-else description="暂无会员卡" />
     </div>
     <el-result v-else-if="apiError" icon="error" title="加载失败" sub-title="获取会员详细信息失败，请检查网络或权限后重试。">
     </el-result>
@@ -752,11 +772,68 @@ defineExpose({ open });
 .card-name { font-weight: 500; }
 .card-balance span { font-weight: bold; color: #E6A23C; }
 .issue-card-section {
-  padding: 15px;
+  padding: 16px;
   background-color: #f8f8f9;
   border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  border-radius: 6px;
   margin-top: 20px;
+}
+
+.compact-form {
+  --el-form-label-font-size: 13px;
+}
+
+.card-type-selector {
+  margin-bottom: 16px;
+}
+
+.card-mode-group {
+  width: 100%;
+}
+
+.card-config-area,
+.service-config {
+  background: #fff;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.custom-config {
+  border-left: 3px solid #409eff;
+  padding-left: 12px;
+}
+
+.config-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.config-row:last-child {
+  margin-bottom: 0;
+}
+
+.config-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-label {
+  font-size: 13px;
+  color: #606266;
+  font-weight: 500;
+}
+
+.required {
+  color: #f56c6c;
+}
+
+.config-select,
+.config-number {
+  width: 100%;
 }
 .total-balance {
   margin-top: 15px;
