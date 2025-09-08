@@ -17,8 +17,7 @@ export default async function (fastify, opts) {
       if (phone && phone !== '00000000000') {
         const existingMember = await prisma.member.findFirst({
           where: { 
-            phone,
-            phone: { not: '00000000000' }
+            phone: phone
           }
         });
         if (existingMember) {
@@ -209,8 +208,7 @@ export default async function (fastify, opts) {
     if (phone && phone !== '00000000000') {
       const existingMember = await prisma.member.findFirst({
         where: { 
-          phone,
-          phone: { not: '00000000000' },
+          phone: phone,
           id: { not: id }  // 排除当前更新的会员
         }
       });
