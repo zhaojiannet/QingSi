@@ -490,6 +490,7 @@ const manualPriceAdjustment = reactive({
 const getInitialForm = () => ({
     appointmentId: null,
     memberId: null,
+    customerName: null,
     serviceIds: [],
     staffId: null,
     paymentMethod: 'CASH',
@@ -845,6 +846,36 @@ const paymentPlan = computed(() => {
   }
 
   // 自动模式 - 先处理无折扣服务，再处理可折扣服务
+  // 检查是否有手动价格调整
+  let targetAmount = totalAmount.value;
+  if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
+    targetAmount = new Decimal(manualPriceAdjustment.adjustedAmount);
+    // 如果有价格调整，直接检查总余额是否足够
+    const totalBalance = availableCards.value.reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
+    if (totalBalance.lessThan(targetAmount)) {
+      return { 
+        paymentDetails: [], 
+        actualPaidAmount: targetAmount, 
+        discountAmount: new Decimal(0), 
+        error: `所有会员卡余额不足，总余额 ¥${totalBalance.toFixed(2)}，需支付 ¥${targetAmount.toFixed(2)}` 
+      };
+    }
+    
+    // 余额足够，返回简化的支付方案
+    return {
+      paymentDetails: [{
+        cardName: '多卡组合',
+        discountRate: new Decimal(1),
+        originalAmountCovered: targetAmount,
+        deduction: targetAmount,
+        discountAmount: new Decimal(0),
+      }],
+      actualPaidAmount: targetAmount,
+      discountAmount: totalAmount.value.minus(targetAmount),
+      isPayable: true,
+    };
+  }
+  
   let remainingDiscountableAmount = discountableAmount.value;
   let remainingNoDiscountAmount = noDiscountAmount.value;
   let totalPaid = new Decimal(0);
@@ -1248,6 +1279,11 @@ const handleCheckout = async () => {
   try {
     // 准备提交数据，包含价格调整信息
     const submitData = { ...form };
+    
+    // 如果没有会员，但有输入姓名，保存为散客姓名
+    if (!form.memberId && memberQuery.value && memberQuery.value.trim()) {
+      submitData.customerName = memberQuery.value.trim();
+    }
     
     // 如果有价格调整，添加相关信息
     if (manualPriceAdjustment.isActive) {
