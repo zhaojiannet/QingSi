@@ -761,6 +761,7 @@ export default async function (fastify, opts) {
           paymentMethod: true,
           cardId: true,
           transactionTime: true,
+          transactionType: true,
           notes: true,
           member: { 
             select: { 

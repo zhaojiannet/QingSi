@@ -406,6 +406,34 @@ export default async function (fastify, opts) {
       return reply.code(400).send({ message: '挂账金额必须大于0' });
     }
 
+    // 幂等性检查：防止重复提交
+    // 检查最近5秒内是否有相同的挂账记录
+    const fiveSecondsAgo = new Date(Date.now() - 5000);
+    const summary = description ? `挂账：${description}` : '挂账';
+    
+    const existingPending = await prisma.transaction.findFirst({
+      where: {
+        memberId: id,
+        totalAmount: -amount,
+        summary: summary,
+        transactionType: 'PENDING',
+        isPending: true,
+        transactionTime: { gte: fiveSecondsAgo }
+      }
+    });
+
+    if (existingPending) {
+      // 返回已存在的记录，避免重复创建
+      const pendingPayment = {
+        id: existingPending.id,
+        memberId: id,
+        amount: amount,
+        description: description || null,
+        createdAt: existingPending.transactionTime
+      };
+      return { message: '挂账添加成功', pendingPayment };
+    }
+
     const transaction = await prisma.transaction.create({
       data: {
         id: generateId(),
@@ -416,7 +444,7 @@ export default async function (fastify, opts) {
         paymentMethod: 'OTHER',
         transactionType: 'PENDING',
         isPending: true,
-        summary: description ? `挂账：${description}` : '挂账',
+        summary: summary,
         transactionTime: createdAt ? new Date(createdAt) : new Date()
       }
     });

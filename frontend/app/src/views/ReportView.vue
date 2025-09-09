@@ -104,7 +104,17 @@
               </template>
             </el-table-column>
             <el-table-column label="服务项目">
-              <template #default="{ row }">{{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}</template>
+              <template #default="{ row }">
+                <span v-if="row.transactionType === 'PENDING'" class="pending-record">
+                  {{ row.summary }}
+                </span>
+                <span v-else-if="row.transactionType === 'PENDING_CLEAR'" class="clear-record">
+                  {{ row.summary }}
+                </span>
+                <span v-else>
+                  {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+                </span>
+              </template>
             </el-table-column>
             <el-table-column label="数量" width="60" align="center">
               <template #default="{ row }">
@@ -157,7 +167,15 @@
             </el-table-column>
             <el-table-column label="实付金额" width="90" align="right">
               <template #default="{ row }">
-                <span class="paid-amount">{{ formatCurrency(row.actualPaidAmount) }}</span>
+                <span 
+                  :class="{
+                    'paid-amount': true,
+                    'pending-amount': row.transactionType === 'PENDING',
+                    'clear-amount': row.transactionType === 'PENDING_CLEAR'
+                  }"
+                >
+                  {{ formatCurrency(row.actualPaidAmount) }}
+                </span>
               </template>
             </el-table-column>
             <el-table-column prop="transactionTime" label="时间" width="150" align="center">
@@ -1446,6 +1464,19 @@ const loadMoreSleepingMembers = async () => {
   font-size: 11px;
   font-style: italic;
   margin-top: 2px;
+}
+
+/* 挂账和清账记录样式 */
+.pending-record {
+  color: #f56c6c;
+}
+
+.clear-record {
+  color: #67c23a;
+}
+
+.clear-amount {
+  color: #67c23a !important;
 }
 
 </style>

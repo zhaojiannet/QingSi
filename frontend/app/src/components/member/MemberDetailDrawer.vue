@@ -321,9 +321,10 @@
         <el-button 
           type="primary" 
           @click="handleAddPending"
-          :disabled="!pendingForm.amount || parseFloat(pendingForm.amount) <= 0"
+          :loading="isSubmittingPending"
+          :disabled="!pendingForm.amount || parseFloat(pendingForm.amount) <= 0 || isSubmittingPending"
         >
-          确认添加
+          {{ isSubmittingPending ? '提交中...' : '确认添加' }}
         </el-button>
       </span>
     </template>
@@ -358,6 +359,7 @@ const depletedCardsPageSize = 5;
 // 挂账相关状态
 const showPendingDialog = ref(false);
 const pendingPayments = ref([]);
+const isSubmittingPending = ref(false);
 const pendingForm = reactive({
   amount: null,
   description: '',
@@ -634,12 +636,20 @@ const cancelPendingDialog = () => {
 
 // 添加挂账
 const handleAddPending = async () => {
+  // 防止重复提交
+  if (isSubmittingPending.value) {
+    return;
+  }
+
   try {
     const amount = parseFloat(pendingForm.amount);
     if (!amount || amount <= 0) {
       ElMessage.warning('请输入有效的挂账金额');
       return;
     }
+
+    // 设置提交状态，防止重复点击
+    isSubmittingPending.value = true;
 
     const data = {
       amount: amount,
@@ -660,6 +670,9 @@ const handleAddPending = async () => {
     emit('success');
   } catch (error) {
     ElMessage.error('挂账添加失败');
+  } finally {
+    // 无论成功失败都重置提交状态
+    isSubmittingPending.value = false;
   }
 };
 
