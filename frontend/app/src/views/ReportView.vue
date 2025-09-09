@@ -108,9 +108,16 @@
                 <span v-if="row.transactionType === 'PENDING'" class="pending-record">
                   {{ row.summary }}
                 </span>
-                <span v-else-if="row.transactionType === 'PENDING_CLEAR'" class="clear-record">
-                  {{ row.summary }}
-                </span>
+                <el-tooltip 
+                  v-else-if="row.transactionType === 'PENDING_CLEAR'" 
+                  :content="getBatchClearTooltip(row)" 
+                  placement="top"
+                  :disabled="!isBatchClear(row)"
+                >
+                  <span class="clear-record">
+                    {{ row.summary }}
+                  </span>
+                </el-tooltip>
                 <span v-else>
                   {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
                 </span>
@@ -1225,6 +1232,25 @@ const loadMoreSleepingMembers = async () => {
   } finally {
     sleepingMembers.loadingMore = false;
   }
+};
+
+// --- 批量清账提示相关方法 ---
+const isBatchClear = (transaction) => {
+  return transaction.transactionType === 'PENDING_CLEAR' && 
+         transaction.summary && 
+         transaction.summary.includes('批量清账') &&
+         transaction.notes;
+};
+
+const getBatchClearTooltip = (transaction) => {
+  if (!isBatchClear(transaction)) return '';
+  
+  // 如果summary已经包含详细信息，直接显示
+  if (transaction.summary && transaction.summary.includes('(¥')) {
+    return transaction.summary.replace(/、/g, '\n• ').replace('批量清账：', '批量清账明细：\n• ');
+  }
+  
+  return transaction.summary;
 };
 </script>
 
