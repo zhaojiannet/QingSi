@@ -10,7 +10,7 @@ const roundToTwoDecimals = (value) => {
 };
 
 // 智能卡片支付处理函数
-async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes) {
+async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName) {
   // 获取会员的所有有效卡片
   const memberCards = await prisma.card.findMany({
     where: { 
@@ -240,7 +240,7 @@ export default async function (fastify, opts) {
     
     // 智能支付：如果是会员卡支付但未指定cardId，自动选择最优支付方式
     if (paymentMethod === 'MEMBER_CARD' && !cardId) {
-      const smartPaymentResult = await handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes);
+      const smartPaymentResult = await handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName);
       
       // 如果是多卡支付或遇到错误，直接返回结果
       if (smartPaymentResult !== undefined) {
