@@ -533,6 +533,31 @@ export default async function (fastify, opts) {
       // 3. 计算总挂账金额并创建批量清账记录
       const totalAmount = pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.totalAmount), 0);
       
+      // 生成明细信息，只显示前3条，超出显示"等X笔"
+      const details = pendingTransactions.map(tx => {
+        let description = tx.summary?.replace('挂账：', '') || '未知项目';
+        // 简化描述，提取关键信息
+        if (description.includes('：')) {
+          description = description.split('：')[0]; // 只取冒号前的部分
+        }
+        // 限制描述长度，避免过长
+        if (description.length > 20) {
+          description = description.substring(0, 17) + '...';
+        }
+        const amount = Math.abs(tx.totalAmount).toFixed(2);
+        return `${description}(¥${amount})`;
+      });
+      
+      let summaryText;
+      if (details.length <= 3) {
+        summaryText = `批量清账：${details.join('、')}`;
+      } else {
+        summaryText = `批量清账：${details.slice(0, 3).join('、')}等${details.length}笔`;
+      }
+      
+      // 简化notes内容，只存储基本信息
+      const pendingIds = pendingTransactions.map(tx => tx.id).join(',');
+      
       await tx.transaction.create({
         data: {
           id: generateId(),
@@ -543,8 +568,8 @@ export default async function (fastify, opts) {
           paymentMethod: 'OTHER',
           transactionType: 'PENDING_CLEAR',
           isPending: false,
-          summary: `批量清账（${pendingTransactions.length}笔）`,
-          notes: 'CLEAR_ALL_PENDING',
+          summary: summaryText,
+          notes: `CLEAR_ALL_PENDING:${pendingIds}`,
           transactionTime: new Date()
         }
       });
