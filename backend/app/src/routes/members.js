@@ -279,15 +279,21 @@ export default async function (fastify, opts) {
     // 或者需要手动处理关联，以防止外键约束失败。
     // 为了数据完整性，我们选择解除关联，而不是删除历史记录。
     await prisma.$transaction(async (tx) => {
-      // 1. 解除消费记录的关联
+      // 1. 保存会员姓名到交易记录，然后解除关联
       await tx.transaction.updateMany({
         where: { memberId: id },
-        data: { memberId: null }
+        data: { 
+          memberId: null,
+          customerName: member.name  // 保存会员姓名
+        }
       });
-      // 2. 解除预约记录的关联
+      // 2. 保存会员姓名到预约记录，然后解除关联
       await tx.appointment.updateMany({
         where: { memberId: id },
-        data: { memberId: null }
+        data: { 
+          memberId: null,
+          customerName: member.name  // 保存会员姓名到现有字段
+        }
       });
       // 3. 删除所有卡片
       await tx.card.deleteMany({
