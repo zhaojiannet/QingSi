@@ -257,7 +257,15 @@
         
         <el-table-column label="服务项目">
           <template #default="{ row }">
-            {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+            <span v-if="row.transactionType === 'PENDING'" class="pending-record">
+              {{ row.summary }}
+            </span>
+            <span v-else-if="row.transactionType === 'PENDING_CLEAR'" class="clear-record">
+              {{ row.summary }}
+            </span>
+            <span v-else>
+              {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+            </span>
           </template>
         </el-table-column>
         
@@ -312,7 +320,15 @@
         
         <el-table-column label="实付金额" width="90" align="right">
           <template #default="{ row }">
-            <span class="paid-amount">¥{{ formatAmount(row.actualPaidAmount) }}</span>
+            <span 
+              :class="{
+                'paid-amount': true,
+                'pending-amount': row.transactionType === 'PENDING',
+                'clear-amount': row.transactionType === 'PENDING_CLEAR'
+              }"
+            >
+              ¥{{ formatAmount(row.actualPaidAmount) }}
+            </span>
           </template>
         </el-table-column>
         
@@ -1525,5 +1541,22 @@ const handleCheckout = async () => {
 
 .transaction-table-container {
   width: 100%;
+}
+
+/* 挂账和清账记录特殊样式 */
+.pending-record {
+  color: #f56c6c;
+}
+
+.clear-record {
+  color: #67c23a;
+}
+
+.pending-amount {
+  color: #f56c6c !important;
+}
+
+.clear-amount {
+  color: #67c23a !important;
 }
 </style>

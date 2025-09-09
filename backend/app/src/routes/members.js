@@ -99,7 +99,15 @@ export default async function (fastify, opts) {
                   }
                 }
               },
-              pendingPayments: true
+              transactions: {
+                where: {
+                  transactionType: 'PENDING',
+                  isPending: true
+                },
+                select: {
+                  totalAmount: true
+                }
+              }
             }
           }),
           prisma.member.count({ where }),
@@ -116,7 +124,12 @@ export default async function (fastify, opts) {
               _count: {
                 select: { 
                   cards: true, // 总卡数
-                  pendingPayments: true // 挂账记录数
+                  transactions: {
+                    where: {
+                      transactionType: 'PENDING',
+                      isPending: true
+                    }
+                  } // 挂账记录数
                 }
               },
               cards: {
@@ -126,9 +139,13 @@ export default async function (fastify, opts) {
                   status: true
                 }
               },
-              pendingPayments: {
+              transactions: {
+                where: {
+                  transactionType: 'PENDING',
+                  isPending: true
+                },
                 select: {
-                  amount: true
+                  totalAmount: true
                 }
               }
             }
@@ -144,9 +161,10 @@ export default async function (fastify, opts) {
           .filter(card => card.status === 'ACTIVE')
           .reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
         
-        // 计算总挂账
-        const totalPending = member.pendingPayments
-          .reduce((sum, payment) => sum.plus(new Decimal(payment.amount)), new Decimal(0));
+        // 计算总挂账（从Transaction表中的负金额计算）
+        const totalPending = member.transactions
+          ? member.transactions.reduce((sum, tx) => sum.plus(new Decimal(Math.abs(tx.totalAmount))), new Decimal(0))
+          : new Decimal(0);
         
         if (shouldIncludeCards) {
           return { 
@@ -348,19 +366,38 @@ export default async function (fastify, opts) {
 
   });
 
-  // 获取会员挂账列表
+  // 获取会员挂账列表（从Transaction表查询）
   fastify.get('/:id/pending', async (request, reply) => {
     const { id } = request.params;
     
-    const pendingPayments = await prisma.pendingPayment.findMany({
-      where: { memberId: id },
-      orderBy: { createdAt: 'desc' }
+    const pendingTransactions = await prisma.transaction.findMany({
+      where: { 
+        memberId: id,
+        transactionType: 'PENDING',
+        isPending: true
+      },
+      orderBy: { transactionTime: 'desc' },
+      select: {
+        id: true,
+        totalAmount: true,
+        summary: true,
+        transactionTime: true
+      }
     });
+
+    // 转换格式以兼容前端（将负金额转为正数，transactionTime作为createdAt）
+    const pendingPayments = pendingTransactions.map(tx => ({
+      id: tx.id,
+      memberId: id,
+      amount: Math.abs(tx.totalAmount), // 转为正数
+      description: tx.summary?.replace('挂账：', '') || null,
+      createdAt: tx.transactionTime
+    }));
 
     return pendingPayments;
   });
 
-  // 添加会员挂账
+  // 添加会员挂账（创建Transaction记录）
   fastify.post('/:id/pending', async (request, reply) => {
     const { id } = request.params;
     const { amount, description, createdAt } = request.body;
@@ -369,36 +406,120 @@ export default async function (fastify, opts) {
       return reply.code(400).send({ message: '挂账金额必须大于0' });
     }
 
-    const pendingPayment = await prisma.pendingPayment.create({
+    const transaction = await prisma.transaction.create({
       data: {
         id: generateId(),
         memberId: id,
-        amount: amount,
-        description: description || null,
-        createdAt: createdAt ? new Date(createdAt) : new Date()
+        totalAmount: -amount, // 负金额表示欠款
+        actualPaidAmount: -amount,
+        discountAmount: 0,
+        paymentMethod: 'OTHER',
+        transactionType: 'PENDING',
+        isPending: true,
+        summary: description ? `挂账：${description}` : '挂账',
+        transactionTime: createdAt ? new Date(createdAt) : new Date()
       }
     });
+
+    // 返回兼容格式
+    const pendingPayment = {
+      id: transaction.id,
+      memberId: id,
+      amount: amount,
+      description: description || null,
+      createdAt: transaction.transactionTime
+    };
 
     return { message: '挂账添加成功', pendingPayment };
   });
 
-  // 删除单个挂账记录
+  // 删除单个挂账记录（结清挂账）
   fastify.delete('/:id/pending/:pendingId', async (request, reply) => {
-    const { pendingId } = request.params;
+    const { id, pendingId } = request.params;
 
-    await prisma.pendingPayment.delete({
-      where: { id: pendingId }
+    await prisma.$transaction(async (tx) => {
+      // 1. 获取原挂账记录
+      const pendingTransaction = await tx.transaction.findUnique({
+        where: { id: pendingId }
+      });
+
+      if (!pendingTransaction || !pendingTransaction.isPending) {
+        throw new Error('挂账记录不存在或已结清');
+      }
+
+      // 2. 设置原记录为已结清
+      await tx.transaction.update({
+        where: { id: pendingId },
+        data: { isPending: false }
+      });
+
+      // 3. 创建清账记录
+      await tx.transaction.create({
+        data: {
+          id: generateId(),
+          memberId: id,
+          totalAmount: Math.abs(pendingTransaction.totalAmount), // 正金额表示收回
+          actualPaidAmount: Math.abs(pendingTransaction.totalAmount),
+          discountAmount: 0,
+          paymentMethod: 'OTHER',
+          transactionType: 'PENDING_CLEAR',
+          isPending: false,
+          summary: `清账：${pendingTransaction.summary?.replace('挂账：', '') || ''}`,
+          notes: `CLEAR_PENDING:${pendingId}`,
+          transactionTime: new Date()
+        }
+      });
     });
 
     return { message: '挂账记录已删除' };
   });
 
-  // 清除会员所有挂账
+  // 清除会员所有挂账（批量结清）
   fastify.delete('/:id/pending', async (request, reply) => {
     const { id } = request.params;
 
-    await prisma.pendingPayment.deleteMany({
-      where: { memberId: id }
+    await prisma.$transaction(async (tx) => {
+      // 1. 获取所有未结清挂账
+      const pendingTransactions = await tx.transaction.findMany({
+        where: { 
+          memberId: id,
+          transactionType: 'PENDING',
+          isPending: true
+        }
+      });
+
+      if (pendingTransactions.length === 0) {
+        return;
+      }
+
+      // 2. 设置所有挂账为已结清
+      await tx.transaction.updateMany({
+        where: { 
+          memberId: id,
+          transactionType: 'PENDING',
+          isPending: true
+        },
+        data: { isPending: false }
+      });
+
+      // 3. 计算总挂账金额并创建批量清账记录
+      const totalAmount = pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.totalAmount), 0);
+      
+      await tx.transaction.create({
+        data: {
+          id: generateId(),
+          memberId: id,
+          totalAmount: totalAmount,
+          actualPaidAmount: totalAmount,
+          discountAmount: 0,
+          paymentMethod: 'OTHER',
+          transactionType: 'PENDING_CLEAR',
+          isPending: false,
+          summary: `批量清账（${pendingTransactions.length}笔）`,
+          notes: 'CLEAR_ALL_PENDING',
+          transactionTime: new Date()
+        }
+      });
     });
 
     return { message: '所有挂账已清除' };

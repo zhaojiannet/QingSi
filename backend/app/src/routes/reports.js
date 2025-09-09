@@ -364,22 +364,29 @@ export default async function (fastify, opts) {
         // 获取有挂账的会员详细信息
         prisma.member.findMany({
           where: {
-            pendingPayments: {
-              some: {}
+            transactions: {
+              some: {
+                transactionType: 'PENDING',
+                isPending: true
+              }
             }
           },
           skip,
           take: limit,
           include: {
-            pendingPayments: {
+            transactions: {
+              where: {
+                transactionType: 'PENDING',
+                isPending: true
+              },
               orderBy: {
-                createdAt: 'desc'
+                transactionTime: 'desc'
               }
             }
           },
           orderBy: [
             {
-              pendingPayments: {
+              transactions: {
                 _count: 'desc'
               }
             },
@@ -389,9 +396,13 @@ export default async function (fastify, opts) {
           ]
         }),
         // 获取总体统计信息
-        prisma.pendingPayment.aggregate({
+        prisma.transaction.aggregate({
+          where: {
+            transactionType: 'PENDING',
+            isPending: true
+          },
           _sum: {
-            amount: true
+            totalAmount: true
           },
           _count: {
             id: true
@@ -401,14 +412,22 @@ export default async function (fastify, opts) {
 
       // 处理数据，计算每个会员的挂账信息
       const processedData = pendingStats.map(member => {
-        const totalPending = member.pendingPayments.reduce(
-          (sum, payment) => sum.plus(new Decimal(payment.amount)),
+        const totalPending = member.transactions.reduce(
+          (sum, tx) => sum.plus(new Decimal(Math.abs(tx.totalAmount))),
           new Decimal(0)
         );
         
-        const recordCount = member.pendingPayments.length;
-        const earliestDate = member.pendingPayments[recordCount - 1]?.createdAt;
-        const latestDate = member.pendingPayments[0]?.createdAt;
+        const recordCount = member.transactions.length;
+        const earliestDate = member.transactions[recordCount - 1]?.transactionTime;
+        const latestDate = member.transactions[0]?.transactionTime;
+
+        // 转换格式以兼容前端
+        const payments = member.transactions.map(tx => ({
+          id: tx.id,
+          amount: Math.abs(tx.totalAmount),
+          description: tx.summary?.replace('挂账：', '') || null,
+          createdAt: tx.transactionTime
+        }));
 
         return {
           id: member.id,
@@ -418,26 +437,29 @@ export default async function (fastify, opts) {
           recordCount,
           earliestDate,
           latestDate,
-          payments: member.pendingPayments
+          payments: payments
         };
       });
 
       // 获取总会员数（有挂账的）
       const memberCount = await prisma.member.count({
         where: {
-          pendingPayments: {
-            some: {}
+          transactions: {
+            some: {
+              transactionType: 'PENDING',
+              isPending: true
+            }
           }
         }
       });
 
-      // 计算汇总信息
+      // 计算汇总信息（注意totalAmount是负数，需要取绝对值）
       const summary = {
-        totalAmount: totalStats._sum.amount ? new Decimal(totalStats._sum.amount).toNumber() : 0,
+        totalAmount: totalStats._sum.totalAmount ? Math.abs(new Decimal(totalStats._sum.totalAmount).toNumber()) : 0,
         recordCount: totalStats._count.id || 0,
         memberCount: memberCount,
         averageAmount: memberCount > 0 
-          ? new Decimal(totalStats._sum.amount || 0).div(memberCount).toNumber() 
+          ? Math.abs(new Decimal(totalStats._sum.totalAmount || 0).div(memberCount).toNumber())
           : 0
       };
 

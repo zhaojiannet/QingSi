@@ -19,7 +19,6 @@ model Member {
   appointments     Appointment[]
   cards            Card[]
   transactions     Transaction[]
-  pendingPayments  PendingPayment[]
 
   @@index([name])
   @@index([phone])
@@ -93,6 +92,8 @@ model Transaction {
   cardId           String?
   transactionTime  DateTime          @default(now())
   notes            String?
+  transactionType  TransactionType   @default(NORMAL)  // 交易类型
+  isPending        Boolean           @default(false)   // 是否为未结清的挂账
   appointment      Appointment?
   cardUsed         Card?             @relation(fields: [cardId], references: [id], onDelete: SetNull)
   member           Member?           @relation(fields: [memberId], references: [id])
@@ -106,6 +107,9 @@ model Transaction {
   @@index([cardId])
   @@index([transactionTime, memberId])
   @@index([transactionTime, paymentMethod])
+  @@index([transactionType])
+  @@index([isPending])
+  @@index([memberId, isPending])
 }
 
 model TransactionItem {
@@ -190,17 +194,6 @@ model SystemConfig {
   enableLoginCaptcha Boolean @default(true)
 }
 
-model PendingPayment {
-  id          String   @id
-  memberId    String
-  amount      Decimal  @db.Decimal(10, 2)
-  description String?  @db.Text
-  createdAt   DateTime @default(now())
-  member      Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-
-  @@index([memberId])
-  @@index([createdAt])
-}
 
 enum MemberStatus {
   ACTIVE
@@ -248,6 +241,12 @@ enum AppointmentStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+enum TransactionType {
+  NORMAL        // 正常消费
+  PENDING       // 挂账（未结清）
+  PENDING_CLEAR // 清账（结清挂账）
 }
 
 enum Role {
