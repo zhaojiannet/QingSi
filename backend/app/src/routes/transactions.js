@@ -46,6 +46,25 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
     return sum.plus(new Decimal(service.standardPrice).times(quantity));
   }, new Decimal(0));
 
+  // 分离参加折扣和不参加折扣的服务金额
+  const discountableAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+    const service = services.find(s => s.id === serviceId);
+    if (!service.noDiscount) {
+      const quantity = serviceQuantities[serviceId];
+      return sum.plus(new Decimal(service.standardPrice).times(quantity));
+    }
+    return sum;
+  }, new Decimal(0));
+  
+  const noDiscountAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+    const service = services.find(s => s.id === serviceId);
+    if (service.noDiscount) {
+      const quantity = serviceQuantities[serviceId];
+      return sum.plus(new Decimal(service.standardPrice).times(quantity));
+    }
+    return sum;
+  }, new Decimal(0));
+
   // 检查是否有手动价格调整
   let targetAmount = totalAmount;
   if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
@@ -67,11 +86,12 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
       return undefined; // 让调用方继续执行主流程
     }
   } else {
-    // 正常折扣计算
+    // 正常折扣计算：考虑noDiscount服务
     const discountRate = new Decimal(preferredCard.cardType.discountRate);
-    const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
+    const discountedAmount = discountableAmount.times(discountRate);
+    const totalNeededAmount = discountedAmount.plus(noDiscountAmount);
     
-    if (maxOriginalAmountThisCardCanCover.greaterThanOrEqualTo(totalAmount)) {
+    if (cardBalance.greaterThanOrEqualTo(totalNeededAmount)) {
       // 首选卡余额够，使用单卡支付
       request.body.cardId = preferredCard.id;
       return undefined; // 让调用方继续执行主流程
@@ -84,14 +104,13 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
   let actualPaidTotal = new Decimal(0);
   const paymentDetails = [];
 
-  // 使用多卡最优支付算法
-  for (const card of memberCards) {
-    if (remainingAmountToPay.isZero()) break;
-    
-    const cardBalance = new Decimal(card.balance);
-    
-    // 如果有价格调整，直接使用余额支付，不考虑折扣
-    if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
+  // 如果有手动价格调整，直接使用调整后的金额
+  if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
+    // 使用多卡最优支付算法 - 手动调价情况
+    for (const card of memberCards) {
+      if (remainingAmountToPay.isZero()) break;
+      
+      const cardBalance = new Decimal(card.balance);
       const amountToCoverByThisCard = Decimal.min(remainingAmountToPay, cardBalance);
       const deduction = amountToCoverByThisCard;
       
@@ -112,18 +131,52 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
           newBalance: cardBalance.minus(deduction).toNumber()
         });
       }
-    } else {
-      // 正常折扣计算
-      const discountRate = new Decimal(card.cardType.discountRate);
+    }
+  } else {
+    // 正常情况：先支付不打折部分，再支付打折部分
+    let remainingNoDiscountAmount = noDiscountAmount;
+    let remainingDiscountableAmount = discountableAmount;
+    
+    // 使用多卡最优支付算法 - 正常折扣情况
+    for (const card of memberCards) {
+      if (remainingNoDiscountAmount.isZero() && remainingDiscountableAmount.isZero()) break;
       
-      // 计算这张卡能承担的金额
-      const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
-      const amountToCoverByThisCard = Decimal.min(remainingAmountToPay, maxOriginalAmountThisCardCanCover);
-      const deduction = amountToCoverByThisCard.times(discountRate);
+      const cardBalance = new Decimal(card.balance);
+      let totalDeduction = new Decimal(0);
+      let totalOriginalCovered = new Decimal(0);
+      let totalDiscountAmount = new Decimal(0);
       
-      if (deduction.greaterThan(0)) {
-        remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
-        actualPaidTotal = actualPaidTotal.plus(deduction);
+      // 先支付不打折部分（按原价扣费）
+      if (!remainingNoDiscountAmount.isZero()) {
+        const noDiscountCovered = Decimal.min(remainingNoDiscountAmount, cardBalance.minus(totalDeduction));
+        if (noDiscountCovered.greaterThan(0)) {
+          totalDeduction = totalDeduction.plus(noDiscountCovered);
+          totalOriginalCovered = totalOriginalCovered.plus(noDiscountCovered);
+          remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountCovered);
+          remainingAmountToPay = remainingAmountToPay.minus(noDiscountCovered);
+        }
+      }
+      
+      // 再支付打折部分（按折扣价扣费）
+      if (!remainingDiscountableAmount.isZero() && totalDeduction.lessThan(cardBalance)) {
+        const discountRate = new Decimal(card.cardType.discountRate);
+        const remainingBalance = cardBalance.minus(totalDeduction);
+        const maxDiscountableAmountThisCardCanCover = remainingBalance.div(discountRate);
+        const discountableCovered = Decimal.min(remainingDiscountableAmount, maxDiscountableAmountThisCardCanCover);
+        const discountableDeduction = discountableCovered.times(discountRate);
+        
+        if (discountableDeduction.greaterThan(0)) {
+          totalDeduction = totalDeduction.plus(discountableDeduction);
+          totalOriginalCovered = totalOriginalCovered.plus(discountableCovered);
+          totalDiscountAmount = totalDiscountAmount.plus(discountableCovered.minus(discountableDeduction));
+          remainingDiscountableAmount = remainingDiscountableAmount.minus(discountableCovered);
+          remainingAmountToPay = remainingAmountToPay.minus(discountableCovered);
+        }
+      }
+      
+      // 如果这张卡有扣费，记录支付详情
+      if (totalDeduction.greaterThan(0)) {
+        actualPaidTotal = actualPaidTotal.plus(totalDeduction);
         // 生成正确的卡片名称（包含自定义面值卡）
         const cardName = card.isCustomCard 
           ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
@@ -132,10 +185,10 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         paymentDetails.push({
           cardId: card.id,
           cardName: cardName,
-          originalAmountCovered: amountToCoverByThisCard.toNumber(),
-          actualPaid: deduction.toNumber(),
-          discountAmount: amountToCoverByThisCard.minus(deduction).toNumber(),
-          newBalance: cardBalance.minus(deduction).toNumber()
+          originalAmountCovered: totalOriginalCovered.toNumber(),
+          actualPaid: totalDeduction.toNumber(),
+          discountAmount: totalDiscountAmount.toNumber(),
+          newBalance: cardBalance.minus(totalDeduction).toNumber()
         });
       }
     }
@@ -156,6 +209,11 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
     }
 
 
+    // 计算多卡支付的实际折扣金额
+    const totalDiscountGiven = paymentDetails.reduce((sum, detail) => {
+      return sum.plus(new Decimal(detail.discountAmount || 0));
+    }, new Decimal(0));
+    
     // 创建交易记录
     const newTransaction = await tx.transaction.create({
       data: {
@@ -165,7 +223,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         summary: '项目消费',
         totalAmount: totalAmount.toNumber(),
         actualPaidAmount: actualPaidTotal.toNumber(),
-        discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
+        discountAmount: totalDiscountGiven.toNumber(),
         paymentMethod: 'MEMBER_CARD',
         cardId: null, // 多卡支付不关联单一卡片
         notes: `多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
@@ -425,7 +483,37 @@ export default async function (fastify, opts) {
       if (services.length !== serviceIds.length) {
         return reply.code(404).send({ message: '一个或多个服务项目不存在' });
       }
-      const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
+      
+      // 计算服务数量
+      const serviceQuantities = {};
+      serviceIds.forEach(id => {
+        serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
+      });
+      
+      // 分别计算可打折和不打折服务的金额
+      const totalAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        const quantity = serviceQuantities[serviceId];
+        return sum.plus(new Decimal(service.standardPrice).times(quantity));
+      }, new Decimal(0));
+      
+      const discountableAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        if (!service.noDiscount) {
+          const quantity = serviceQuantities[serviceId];
+          return sum.plus(new Decimal(service.standardPrice).times(quantity));
+        }
+        return sum;
+      }, new Decimal(0));
+      
+      const noDiscountAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
+        const service = services.find(s => s.id === serviceId);
+        if (service.noDiscount) {
+          const quantity = serviceQuantities[serviceId];
+          return sum.plus(new Decimal(service.standardPrice).times(quantity));
+        }
+        return sum;
+      }, new Decimal(0));
       
       let remainingAmountToPay = totalAmount;
       let actualPaidTotal = new Decimal(0);
@@ -454,25 +542,62 @@ export default async function (fastify, opts) {
           paymentDetails.push({ cardId: card.id, deduction: deduction.toNumber() });
         }
       } else {
+        // 正常多卡支付：分别处理不打折和可打折服务
+        let remainingNoDiscountAmount = noDiscountAmount;
+        let remainingDiscountableAmount = discountableAmount;
+        let totalDiscountGiven = new Decimal(0);
 
-      for (const card of memberCards) {
-        if (remainingAmountToPay.isZero()) break;
-        const cardBalance = new Decimal(card.balance);
-        const discountRate = new Decimal(card.cardType.discountRate);
-        const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
-        const amountToCoverByThisCard = Decimal.min(remainingAmountToPay, maxOriginalAmountThisCardCanCover);
-        const deduction = amountToCoverByThisCard.times(discountRate);
+        for (const card of memberCards) {
+          if (remainingNoDiscountAmount.isZero() && remainingDiscountableAmount.isZero()) break;
+          
+          const cardBalance = new Decimal(card.balance);
+          const discountRate = new Decimal(card.cardType.discountRate);
+          let totalDeduction = new Decimal(0);
+          let cardDiscountGiven = new Decimal(0);
+          
+          // 1. 先支付不打折服务（按原价1:1扣费）
+          if (!remainingNoDiscountAmount.isZero()) {
+            const noDiscountCovered = Decimal.min(remainingNoDiscountAmount, cardBalance.minus(totalDeduction));
+            if (noDiscountCovered.greaterThan(0)) {
+              totalDeduction = totalDeduction.plus(noDiscountCovered);
+              remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountCovered);
+            }
+          }
+          
+          // 2. 再支付可打折服务（按折扣价扣费）
+          if (!remainingDiscountableAmount.isZero() && totalDeduction.lessThan(cardBalance)) {
+            const remainingCardBalance = cardBalance.minus(totalDeduction);
+            const maxDiscountableAmountThisCardCanCover = remainingCardBalance.div(discountRate);
+            const discountableCovered = Decimal.min(remainingDiscountableAmount, maxDiscountableAmountThisCardCanCover);
+            const discountableDeduction = discountableCovered.times(discountRate);
+            
+            if (discountableDeduction.greaterThan(0)) {
+              totalDeduction = totalDeduction.plus(discountableDeduction);
+              cardDiscountGiven = discountableCovered.minus(discountableDeduction);
+              totalDiscountGiven = totalDiscountGiven.plus(cardDiscountGiven);
+              remainingDiscountableAmount = remainingDiscountableAmount.minus(discountableCovered);
+            }
+          }
+          
+          if (totalDeduction.greaterThan(0)) {
+            actualPaidTotal = actualPaidTotal.plus(totalDeduction);
+            paymentDetails.push({ 
+              cardId: card.id, 
+              deduction: totalDeduction.toNumber(),
+              discountGiven: cardDiscountGiven.toNumber() 
+            });
+          }
+        }
         
-        actualPaidTotal = actualPaidTotal.plus(deduction);
-        remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
+        // 检查是否还有未支付的金额
+        if (!remainingNoDiscountAmount.isZero() || !remainingDiscountableAmount.isZero()) {
+          const remainingTotal = remainingNoDiscountAmount.plus(remainingDiscountableAmount);
+          return reply.code(400).send({ 
+            message: `所有会员卡余额不足，仍有 ¥${remainingTotal.toFixed(2)} 未支付` 
+          });
+        }
+      }
 
-        paymentDetails.push({ cardId: card.id, deduction: deduction.toNumber() });
-      }
-      }
-
-      if (!isManualAdjustment && !remainingAmountToPay.isZero()) {
-        return reply.code(400).send({ message: `所有会员卡余额不足，仍有 ¥${remainingAmountToPay.toFixed(2)} 未支付` });
-      }
 
       const result = await prisma.$transaction(async (tx) => {
         for (const detail of paymentDetails) {
@@ -482,6 +607,18 @@ export default async function (fastify, opts) {
           });
         }
 
+        // 计算正确的折扣金额
+        let finalDiscountAmount;
+        if (isManualAdjustment) {
+          finalDiscountAmount = totalAmount.minus(actualPaidTotal);
+        } else {
+          // 正常情况：只对可打折服务计算折扣
+          const totalDiscountGiven = paymentDetails.reduce((sum, detail) => {
+            return sum.plus(new Decimal(detail.discountGiven || 0));
+          }, new Decimal(0));
+          finalDiscountAmount = totalDiscountGiven;
+        }
+
         const newTransaction = await tx.transaction.create({
             data: {
                 id: generateId(),
@@ -489,27 +626,29 @@ export default async function (fastify, opts) {
                 customerName: customerName || null,
                 totalAmount: totalAmount.toNumber(),
                 actualPaidAmount: actualPaidTotal.toNumber(),
-                discountAmount: totalAmount.minus(actualPaidTotal).toNumber(),
+                discountAmount: finalDiscountAmount.toNumber(),
                 paymentMethod: 'MEMBER_CARD',
-                notes: isManualAdjustment 
-                  ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
-                  : notes,
+                notes: paymentDetails.length > 1 
+                  ? `多卡联合支付: ${paymentDetails.map(detail => {
+                      const card = userCards.find(c => c.id === detail.cardId);
+                      const cardName = card.isCustomCard 
+                        ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
+                        : card.cardType.name;
+                      return `${cardName}¥${new Decimal(detail.deduction).toFixed(2)}`;
+                    }).join(' + ')}`
+                  : (isManualAdjustment 
+                      ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
+                      : notes),
                 member: { connect: { id: memberId } },
                 staff: staffId ? { connect: { id: staffId } } : undefined,
                 appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
                 items: { 
-                  create: (() => {
-                    const serviceQuantities = {};
-                    serviceIds.forEach(id => {
-                      serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
-                    });
-                    return Object.keys(serviceQuantities).map(serviceId => ({
-                      id: generateId(),
-                      serviceId: serviceId,
-                      price: services.find(s => s.id === serviceId).standardPrice,
-                      quantity: serviceQuantities[serviceId],
-                    }));
-                  })(),
+                  create: Object.keys(serviceQuantities).map(serviceId => ({
+                    id: generateId(),
+                    serviceId: serviceId,
+                    price: services.find(s => s.id === serviceId).standardPrice,
+                    quantity: serviceQuantities[serviceId],
+                  })),
                 },
             }
         });
