@@ -9,6 +9,7 @@ import router from './router'
 // 保持全量引入，确保所有组件样式正确
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css' 
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 // 统一时区处理系统
@@ -23,7 +24,9 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 // 必须先注册 Pinia，再注册 Router
 app.use(createPinia())
 app.use(router)
-app.use(ElementPlus)
+app.use(ElementPlus, {
+  locale: zhCn,
+})
 
 // 注册时区插件
 app.use(timezonePlugin)

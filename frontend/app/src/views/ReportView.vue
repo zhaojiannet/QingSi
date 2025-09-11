@@ -202,11 +202,14 @@
             <el-table-column prop="transactionTime" label="时间" width="150" align="center">
               <template #default="{ row }">
                 <el-tooltip
-                  :content="formatFullDateTimeInAppTimeZone(row.transactionTime)"
+                  :content="getTimeTooltip(row)"
                   placement="top"
                   effect="dark"
                 >
-                  {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+                  <span :class="{ 'manual-time': isManualTime(row) }">
+                    <el-icon v-if="isManualTime(row)" style="margin-right: 4px;"><Edit /></el-icon>
+                    {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+                  </span>
                 </el-tooltip>
               </template>
             </el-table-column>
@@ -1266,6 +1269,21 @@ const getBatchClearTooltip = (transaction) => {
   
   return transaction.summary;
 };
+
+// 判断是否为手动设置的时间
+const isManualTime = (row) => {
+  // 通过备注中是否包含[手动设置时间]标记来判断
+  return row.notes && row.notes.includes('[手动设置时间]');
+};
+
+// 获取时间tooltip内容
+const getTimeTooltip = (row) => {
+  const fullTime = formatFullDateTimeInAppTimeZone(row.transactionTime);
+  if (isManualTime(row)) {
+    return `${fullTime} (此交易时间为手动设置)`;
+  }
+  return fullTime;
+};
 </script>
 
 <style scoped>
@@ -1527,6 +1545,14 @@ const getBatchClearTooltip = (transaction) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: help;
+}
+
+/* 手动设置时间的样式 */
+.manual-time {
+  color: #e6a23c !important; /* 橙色，表示需要注意 */
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
 }
 
 </style>

@@ -10,7 +10,7 @@ const roundToTwoDecimals = (value) => {
 };
 
 // 智能卡片支付处理函数
-async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName) {
+async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
   // 获取会员的所有有效卡片
   const memberCards = await prisma.card.findMany({
     where: { 
@@ -226,8 +226,8 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         discountAmount: totalDiscountGiven.toNumber(),
         paymentMethod: 'MEMBER_CARD',
         cardId: null, // 多卡支付不关联单一卡片
-        notes: `多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
-        transactionTime: new Date()
+        notes: `${notes ? notes + ' | ' : ''}多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
+        transactionTime: customTransactionTime ? new Date(customTransactionTime) : new Date()
       }
     });
 
@@ -272,6 +272,7 @@ export default async function (fastify, opts) {
       notes,
       appointmentId,
       manualPriceAdjustment,
+      customTransactionTime,
     } = request.body;
     
     let cardId = request.body.cardId; // 使用let以便后续可以重新赋值
@@ -298,7 +299,7 @@ export default async function (fastify, opts) {
     
     // 智能支付：如果是会员卡支付但未指定cardId，自动选择最优支付方式
     if (paymentMethod === 'MEMBER_CARD' && !cardId) {
-      const smartPaymentResult = await handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName);
+      const smartPaymentResult = await handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime);
       
       // 如果是多卡支付或遇到错误，直接返回结果
       if (smartPaymentResult !== undefined) {
@@ -423,6 +424,7 @@ export default async function (fastify, opts) {
               })),
             },
             appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
+            transactionTime: customTransactionTime ? new Date(customTransactionTime) : undefined, // 如果提供了自定义时间则使用，否则使用默认值
           },
         });
         
@@ -453,7 +455,7 @@ export default async function (fastify, opts) {
 
   // --- 组合支付结算接口 ---
   fastify.post('/combo-checkout', async (request, reply) => {
-    const { memberId, customerName, serviceIds, staffId, notes, appointmentId, manualPriceAdjustment } = request.body;
+    const { memberId, customerName, serviceIds, staffId, notes, appointmentId, manualPriceAdjustment, customTransactionTime } = request.body;
 
     if (!memberId || !serviceIds || !serviceIds.length) {
       return reply.code(400).send({ message: '缺少必要参数：会员、服务项目' });
@@ -650,6 +652,7 @@ export default async function (fastify, opts) {
                     quantity: serviceQuantities[serviceId],
                   })),
                 },
+                transactionTime: customTransactionTime ? new Date(customTransactionTime) : undefined, // 如果提供了自定义时间则使用，否则使用默认值
             }
         });
         

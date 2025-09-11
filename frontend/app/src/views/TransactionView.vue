@@ -104,6 +104,20 @@
             </el-select>
           </el-form-item>
           
+          <!-- 交易时间选择 -->
+          <el-form-item label="交易时间">
+            <el-date-picker
+              v-model="form.transactionTime"
+              type="datetime"
+              placeholder="选择交易时间"
+              size="large"
+              style="width: 100%"
+              format="YYYY-MM-DD HH:mm:ss"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              @change="onTransactionTimeChange"
+            />
+          </el-form-item>
+          
            <el-form-item label="备注">
             <el-input v-model="form.notes" type="textarea" placeholder="请输入备注信息" size="large" />
           </el-form-item>
@@ -356,11 +370,14 @@
         <el-table-column prop="transactionTime" label="时间" width="150" align="center">
           <template #default="{ row }">
             <el-tooltip
-              :content="formatFullDateTimeInAppTimeZone(row.transactionTime)"
+              :content="getTimeTooltip(row)"
               placement="top"
               effect="dark"
             >
-              {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+              <span :class="{ 'manual-time': isManualTime(row) }">
+                <el-icon v-if="isManualTime(row)" style="margin-right: 4px;"><Edit /></el-icon>
+                {{ formatShortDateInAppTimeZone(row.transactionTime) }}
+              </span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -533,6 +550,8 @@ const getInitialForm = () => ({
     paymentMethod: 'CASH',
     cardId: null,
     notes: '',
+    transactionTime: new Date().toISOString().slice(0, 19).replace('T', ' '), // 默认当前时间，格式化为YYYY-MM-DD HH:mm:ss
+    isManualTime: false, // 标记是否手动选择了时间
 });
 const form = reactive(getInitialForm());
 
@@ -656,6 +675,15 @@ const sortedServiceList = computed(() => {
 });
 // 服务数量映射
 const serviceQuantities = reactive({});
+
+// 时间变化处理函数
+const onTransactionTimeChange = (value) => {
+  // 判断是否手动选择了时间（与当前时间相差超过1分钟即认为是手动选择）
+  const now = new Date();
+  const selectedTime = new Date(value);
+  const timeDifference = Math.abs(now - selectedTime);
+  form.isManualTime = timeDifference > 60000; // 1分钟 = 60000毫秒
+};
 
 const cartItems = computed(() => {
   const uniqueServiceIds = [...new Set(form.serviceIds)];
@@ -1145,6 +1173,8 @@ const resetForm = async () => {
   form.serviceIds = [];
   form.notes = '';
   form.appointmentId = null;
+  form.transactionTime = new Date().toISOString().slice(0, 19).replace('T', ' '); // 重置为当前时间
+  form.isManualTime = false; // 重置手动时间标记
   
   // 重置价格调整状态
   manualPriceAdjustment.isActive = false;
@@ -1322,6 +1352,15 @@ const handleCheckout = async () => {
       submitData.customerName = memberQuery.value.trim();
     }
     
+    // 添加自定义交易时间
+    if (form.transactionTime) {
+      submitData.customTransactionTime = form.transactionTime;
+      // 如果是手动选择的时间，在备注中添加标记
+      if (form.isManualTime) {
+        submitData.notes = `[手动设置时间] ${submitData.notes || ''}`.trim();
+      }
+    }
+    
     // 如果有价格调整，添加相关信息
     if (manualPriceAdjustment.isActive) {
       submitData.manualPriceAdjustment = {
@@ -1369,6 +1408,21 @@ const getBatchClearTooltip = (transaction) => {
   }
   
   return transaction.summary;
+};
+
+// 判断是否为手动设置的时间
+const isManualTime = (row) => {
+  // 通过备注中是否包含[手动设置时间]标记来判断
+  return row.notes && row.notes.includes('[手动设置时间]');
+};
+
+// 获取时间tooltip内容
+const getTimeTooltip = (row) => {
+  const fullTime = formatFullDateTimeInAppTimeZone(row.transactionTime);
+  if (isManualTime(row)) {
+    return `${fullTime} (此交易时间为手动设置)`;
+  }
+  return fullTime;
 };
 </script>
 
@@ -1608,5 +1662,13 @@ const getBatchClearTooltip = (transaction) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: help;
+}
+
+/* 手动设置时间的样式 */
+.manual-time {
+  color: #e6a23c !important; /* 橙色，表示需要注意 */
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
 }
 </style>
