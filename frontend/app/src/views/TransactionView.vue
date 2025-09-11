@@ -257,9 +257,16 @@
         
         <el-table-column label="服务项目">
           <template #default="{ row }">
-            <span v-if="row.transactionType === 'PENDING'" class="pending-record">
-              {{ row.summary }}
-            </span>
+            <el-tooltip 
+              v-if="row.transactionType === 'PENDING'"
+              :content="row.summary"
+              placement="top"
+              effect="dark"
+            >
+              <span class="pending-record service-items-text">
+                {{ row.summary }}
+              </span>
+            </el-tooltip>
             <el-tooltip 
               v-else-if="row.transactionType === 'PENDING_CLEAR'" 
               :content="getBatchClearTooltip(row)" 
@@ -270,9 +277,16 @@
                 {{ row.summary }}
               </span>
             </el-tooltip>
-            <span v-else>
-              {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
-            </span>
+            <el-tooltip
+              v-else
+              :content="row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费'"
+              placement="top"
+              effect="dark"
+            >
+              <span class="service-items-text">
+                {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+              </span>
+            </el-tooltip>
           </template>
         </el-table-column>
         
@@ -1584,5 +1598,15 @@ const getBatchClearTooltip = (transaction) => {
 
 .clear-amount {
   color: #67c23a !important;
+}
+
+/* 服务项目文字显示样式 */
+.service-items-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 </style>
