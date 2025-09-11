@@ -87,17 +87,19 @@ export const addPendingPayment = (memberId, data) => {
 };
 
 // --- 新增：删除单个挂账记录 ---
-export const deletePendingPayment = (memberId, pendingId) => {
+export const deletePendingPayment = (memberId, pendingId, paymentData = {}) => {
   return request({
     url: `/members/${memberId}/pending/${pendingId}`,
     method: 'delete',
+    data: paymentData
   });
 };
 
 // --- 新增：清除会员所有挂账 ---
-export const clearAllPendingPayments = (memberId) => {
+export const clearAllPendingPayments = (memberId, paymentData = {}) => {
   return request({
     url: `/members/${memberId}/pending`,
     method: 'delete',
+    data: paymentData
   });
 };

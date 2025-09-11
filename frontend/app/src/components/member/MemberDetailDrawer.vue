@@ -232,7 +232,7 @@
                   type="danger" 
                   size="small" 
                   plain 
-                  @click="handleDeletePendingPayment(payment.id)"
+                  @click="openClearSingleDialog(payment.id, payment.amount)"
                   class="delete-btn"
                 >
                   删除
@@ -248,7 +248,7 @@
               <span class="total-amount">¥{{ formatAmount(totalPendingAmount.toNumber()) }}</span>
             </div>
             <div class="action-buttons">
-              <el-button type="success" size="small" @click="handleClearAllPending">
+              <el-button type="success" size="small" @click="openClearAllDialog">
                 全部清账
               </el-button>
               <el-button type="primary" size="small" @click="openPendingDialog">
@@ -329,6 +329,174 @@
       </span>
     </template>
   </el-dialog>
+
+  <!-- 单个挂账清账对话框 -->
+  <el-dialog 
+    v-model="clearSingleDialog.visible" 
+    title="确认清账" 
+    width="500px"
+    :close-on-click-modal="false"
+  >
+    <el-alert 
+      :title="`清账金额：¥${formatAmount(clearSingleDialog.amount)}`"
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 20px"
+    />
+    
+    <el-form :model="clearSingleDialog" label-width="100px">
+      <el-form-item label="支付方式">
+        <el-radio-group v-model="clearSingleDialog.paymentMethod">
+          <el-radio value="MEMBER_CARD" :disabled="!hasAvailableCards">
+            会员卡支付
+          </el-radio>
+          <el-radio value="CASH">现金结清</el-radio>
+        </el-radio-group>
+        <div v-if="!hasAvailableCards && clearSingleDialog.paymentMethod === 'MEMBER_CARD'" 
+             class="no-cards-tip">
+          该会员没有可用的会员卡
+        </div>
+      </el-form-item>
+      
+      <el-form-item 
+        label="选择会员卡" 
+        v-if="clearSingleDialog.paymentMethod === 'MEMBER_CARD' && hasAvailableCards"
+      >
+        <el-select 
+          v-model="clearSingleDialog.cardId" 
+          placeholder="请选择会员卡"
+          @change="validateCardBalance"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="card in availableCards"
+            :key="card.id"
+            :label="getCardOptionLabel(card)"
+            :value="card.id"
+            :disabled="card.balance < clearSingleDialog.amount"
+          >
+            <div :style="{ color: card.balance < clearSingleDialog.amount ? '#F56C6C' : '' }">
+              <div>{{ getCardDisplayName(card) }}</div>
+              <div style="font-size: 12px;">
+                余额: ¥{{ formatAmount(card.balance) }}
+                <span v-if="card.balance < clearSingleDialog.amount" style="color: #F56C6C;">
+                  - 余额不足
+                </span>
+              </div>
+            </div>
+          </el-option>
+        </el-select>
+        
+        <!-- 余额不足警告 -->
+        <el-alert
+          v-if="clearSingleDialog.cardId && !isSingleBalanceSufficient"
+          title="所选会员卡余额不足，无法完成清账"
+          type="error"
+          :closable="false"
+          style="margin-top: 10px"
+        />
+      </el-form-item>
+    </el-form>
+    
+    <template #footer>
+      <el-button @click="clearSingleDialog.visible = false">取消</el-button>
+      <el-button 
+        type="primary" 
+        @click="confirmClearSingle"
+        :disabled="!canConfirmSingleClear"
+        :loading="clearSingleDialog.loading"
+      >
+        {{ clearSingleDialog.loading ? '处理中...' : '确认清账' }}
+      </el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 批量清账对话框 -->
+  <el-dialog 
+    v-model="clearAllDialog.visible" 
+    title="确认批量清账" 
+    width="500px"
+    :close-on-click-modal="false"
+  >
+    <el-alert 
+      :title="`总挂账金额：¥${formatAmount(totalPendingAmount.toNumber())}`"
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 20px"
+    />
+    
+    <div class="pending-summary" style="margin-bottom: 20px;">
+      <div style="font-size: 14px; color: #666;">
+        共 {{ pendingPayments.length }} 笔挂账记录
+      </div>
+    </div>
+    
+    <el-form :model="clearAllDialog" label-width="100px">
+      <el-form-item label="支付方式">
+        <el-radio-group v-model="clearAllDialog.paymentMethod">
+          <el-radio value="MEMBER_CARD" :disabled="!hasAvailableCards">
+            会员卡支付
+          </el-radio>
+          <el-radio value="CASH">现金结清</el-radio>
+        </el-radio-group>
+        <div v-if="!hasAvailableCards && clearAllDialog.paymentMethod === 'MEMBER_CARD'" 
+             class="no-cards-tip">
+          该会员没有可用的会员卡
+        </div>
+      </el-form-item>
+      
+      <el-form-item 
+        label="选择会员卡" 
+        v-if="clearAllDialog.paymentMethod === 'MEMBER_CARD' && hasAvailableCards"
+      >
+        <el-select 
+          v-model="clearAllDialog.cardId" 
+          placeholder="请选择会员卡"
+          @change="validateAllCardBalance"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="card in availableCards"
+            :key="card.id"
+            :label="getCardOptionLabel(card)"
+            :value="card.id"
+            :disabled="card.balance < totalPendingAmount.toNumber()"
+          >
+            <div :style="{ color: card.balance < totalPendingAmount.toNumber() ? '#F56C6C' : '' }">
+              <div>{{ getCardDisplayName(card) }}</div>
+              <div style="font-size: 12px;">
+                余额: ¥{{ formatAmount(card.balance) }}
+                <span v-if="card.balance < totalPendingAmount.toNumber()" style="color: #F56C6C;">
+                  - 余额不足
+                </span>
+              </div>
+            </div>
+          </el-option>
+        </el-select>
+        
+        <!-- 余额不足警告 -->
+        <el-alert
+          v-if="clearAllDialog.cardId && !isAllBalanceSufficient"
+          title="所选会员卡余额不足，无法完成批量清账"
+          type="error"
+          :closable="false"
+          style="margin-top: 10px"
+        />
+      </el-form-item>
+    </el-form>
+    
+    <template #footer>
+      <el-button @click="clearAllDialog.visible = false">取消</el-button>
+      <el-button 
+        type="primary" 
+        @click="confirmClearAll"
+        :disabled="!canConfirmAllClear"
+        :loading="clearAllDialog.loading"
+      >
+        {{ clearAllDialog.loading ? '处理中...' : '确认批量清账' }}
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -392,6 +560,84 @@ const totalPendingAmount = computed(() => {
     return sum.plus(toDecimal(payment.amount));
   }, toDecimal(0));
 });
+
+// 清账对话框数据
+const clearSingleDialog = reactive({
+  visible: false,
+  pendingId: null,
+  amount: 0,
+  paymentMethod: 'CASH',
+  cardId: null,
+  loading: false
+});
+
+const clearAllDialog = reactive({
+  visible: false,
+  paymentMethod: 'CASH',
+  cardId: null,
+  loading: false
+});
+
+// 可用会员卡列表
+const availableCards = computed(() => {
+  if (!member.value?.cards) return [];
+  return member.value.cards.filter(card => 
+    card.status === 'ACTIVE' && parseFloat(card.balance) > 0
+  );
+});
+
+const hasAvailableCards = computed(() => availableCards.value.length > 0);
+
+// 余额验证计算属性
+const isSingleBalanceSufficient = computed(() => {
+  if (clearSingleDialog.paymentMethod !== 'MEMBER_CARD') return true;
+  if (!clearSingleDialog.cardId) return false;
+  
+  const card = availableCards.value.find(c => c.id === clearSingleDialog.cardId);
+  return card && parseFloat(card.balance) >= clearSingleDialog.amount;
+});
+
+const isAllBalanceSufficient = computed(() => {
+  if (clearAllDialog.paymentMethod !== 'MEMBER_CARD') return true;
+  if (!clearAllDialog.cardId) return false;
+  
+  const card = availableCards.value.find(c => c.id === clearAllDialog.cardId);
+  return card && parseFloat(card.balance) >= totalPendingAmount.value.toNumber();
+});
+
+// 确认按钮启用状态
+const canConfirmSingleClear = computed(() => {
+  if (clearSingleDialog.paymentMethod === 'CASH') {
+    return true;
+  }
+  return isSingleBalanceSufficient.value;
+});
+
+const canConfirmAllClear = computed(() => {
+  if (clearAllDialog.paymentMethod === 'CASH') {
+    return true;
+  }
+  return isAllBalanceSufficient.value;
+});
+
+// 获取最优支付卡片（余额最接近但大于所需金额的卡片）
+const getOptimalPaymentCard = (requiredAmount) => {
+  if (!availableCards.value.length) return null;
+  
+  // 筛选出余额充足的卡片
+  const sufficientCards = availableCards.value.filter(card => 
+    parseFloat(card.balance) >= requiredAmount
+  );
+  
+  if (!sufficientCards.length) return null;
+  
+  // 选择余额最接近所需金额的卡片（避免浪费大额卡）
+  return sufficientCards.reduce((optimal, card) => {
+    const cardBalance = parseFloat(card.balance);
+    const optimalBalance = parseFloat(optimal.balance);
+    return cardBalance < optimalBalance ? card : optimal;
+  });
+};
 
 const onDialogOpen = async () => {
   if (!member.value?.id) return;
@@ -676,34 +922,140 @@ const handleAddPending = async () => {
   }
 };
 
-// 删除单个挂账记录
-const handleDeletePendingPayment = async (pendingId) => {
+// 打开单个挂账清账对话框
+const openClearSingleDialog = (pendingId, amount) => {
+  clearSingleDialog.pendingId = pendingId;
+  clearSingleDialog.amount = amount;
+  clearSingleDialog.loading = false;
+  
+  // 智能选择支付方式和会员卡
+  const optimalCard = getOptimalPaymentCard(amount);
+  if (optimalCard) {
+    clearSingleDialog.paymentMethod = 'MEMBER_CARD';
+    clearSingleDialog.cardId = optimalCard.id;
+  } else {
+    clearSingleDialog.paymentMethod = 'CASH';
+    clearSingleDialog.cardId = null;
+  }
+  
+  clearSingleDialog.visible = true;
+};
+
+// 打开批量清账对话框
+const openClearAllDialog = () => {
+  clearAllDialog.loading = false;
+  
+  // 智能选择支付方式和会员卡
+  const totalAmount = totalPendingAmount.value.toNumber();
+  const optimalCard = getOptimalPaymentCard(totalAmount);
+  if (optimalCard) {
+    clearAllDialog.paymentMethod = 'MEMBER_CARD';
+    clearAllDialog.cardId = optimalCard.id;
+  } else {
+    clearAllDialog.paymentMethod = 'CASH';
+    clearAllDialog.cardId = null;
+  }
+  
+  clearAllDialog.visible = true;
+};
+
+// 确认单个清账
+const confirmClearSingle = async () => {
+  if (!canConfirmSingleClear.value) return;
+  
+  clearSingleDialog.loading = true;
   try {
-    await deletePendingPayment(member.value.id, pendingId);
-    ElMessage.success('挂账记录已删除');
+    const paymentData = {
+      paymentMethod: clearSingleDialog.paymentMethod
+    };
+    
+    if (clearSingleDialog.paymentMethod === 'MEMBER_CARD') {
+      if (!clearSingleDialog.cardId) {
+        ElMessage.error('请选择会员卡');
+        return;
+      }
+      paymentData.cardId = clearSingleDialog.cardId;
+    }
+    
+    const response = await deletePendingPayment(
+      member.value.id, 
+      clearSingleDialog.pendingId,
+      paymentData
+    );
+    
+    ElMessage.success(response.message || '挂账已清除');
+    clearSingleDialog.visible = false;
     
     // 从本地列表中移除该记录
-    pendingPayments.value = pendingPayments.value.filter(p => p.id !== pendingId);
+    pendingPayments.value = pendingPayments.value.filter(
+      p => p.id !== clearSingleDialog.pendingId
+    );
     
+    // 重新加载会员数据以更新余额显示
+    await onDialogOpen();
     emit('success');
   } catch (error) {
-    ElMessage.error('删除挂账记录失败');
+    ElMessage.error(error.response?.data?.message || '清账失败');
+  } finally {
+    clearSingleDialog.loading = false;
   }
 };
 
-// 清除所有挂账
-const handleClearAllPending = async () => {
+// 确认批量清账
+const confirmClearAll = async () => {
+  if (!canConfirmAllClear.value) return;
+  
+  clearAllDialog.loading = true;
   try {
-    await clearAllPendingPayments(member.value.id);
-    ElMessage.success('所有挂账已清除');
+    const paymentData = {
+      paymentMethod: clearAllDialog.paymentMethod
+    };
+    
+    if (clearAllDialog.paymentMethod === 'MEMBER_CARD') {
+      if (!clearAllDialog.cardId) {
+        ElMessage.error('请选择会员卡');
+        return;
+      }
+      paymentData.cardId = clearAllDialog.cardId;
+    }
+    
+    const response = await clearAllPendingPayments(member.value.id, paymentData);
+    
+    ElMessage.success(response.message || '所有挂账已清除');
+    clearAllDialog.visible = false;
     
     // 清空本地挂账列表
     pendingPayments.value = [];
     
+    // 重新加载会员数据以更新余额显示
+    await onDialogOpen();
     emit('success');
   } catch (error) {
-    ElMessage.error('清除挂账失败');
+    ElMessage.error(error.response?.data?.message || '批量清账失败');
+  } finally {
+    clearAllDialog.loading = false;
   }
+};
+
+// 验证会员卡余额
+const validateCardBalance = () => {
+  if (!isSingleBalanceSufficient.value) {
+    ElMessage.warning('所选会员卡余额不足');
+  }
+};
+
+const validateAllCardBalance = () => {
+  if (!isAllBalanceSufficient.value) {
+    ElMessage.warning('所选会员卡余额不足');
+  }
+};
+
+
+// 获取会员卡选项标签
+const getCardOptionLabel = (card) => {
+  const name = getCardDisplayName(card);
+  const balance = formatAmount(card.balance);
+  return `${name} (余额: ¥${balance})`;
 };
 
 // 判断是否需要显示tooltip（备注过长时显示）
@@ -775,6 +1127,13 @@ defineExpose({ open });
   color: #909399;
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* 清账对话框样式 */
+.no-cards-tip {
+  margin-top: 8px;
+  color: #f56c6c;
+  font-size: 12px;
 }
 
 .card-item.depleted-card .el-tag {

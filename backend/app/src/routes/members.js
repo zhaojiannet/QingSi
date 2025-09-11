@@ -464,6 +464,7 @@ export default async function (fastify, opts) {
   // 删除单个挂账记录（结清挂账）
   fastify.delete('/:id/pending/:pendingId', async (request, reply) => {
     const { id, pendingId } = request.params;
+    const { paymentMethod = 'OTHER', cardId } = request.body || {};
 
     await prisma.$transaction(async (tx) => {
       // 1. 获取原挂账记录
@@ -475,36 +476,92 @@ export default async function (fastify, opts) {
         throw new Error('挂账记录不存在或已结清');
       }
 
-      // 2. 设置原记录为已结清
+      const pendingAmount = Math.abs(pendingTransaction.totalAmount);
+      let cardUsed = null;
+      let paymentMethodToUse = paymentMethod;
+      let clearSummary = `清账：${pendingTransaction.summary?.replace('挂账：', '') || ''}`;
+      let clearNotes = `CLEAR_PENDING:${pendingId}`;
+
+      // 2. 如果选择会员卡支付，验证卡片和余额
+      if (paymentMethod === 'MEMBER_CARD') {
+        if (!cardId) {
+          throw new Error('使用会员卡支付时必须指定会员卡');
+        }
+
+        // 获取并验证会员卡
+        cardUsed = await tx.card.findUnique({
+          where: { id: cardId },
+          include: { cardType: true }
+        });
+
+        if (!cardUsed || cardUsed.memberId !== id) {
+          throw new Error('会员卡不存在或不属于该会员');
+        }
+
+        if (cardUsed.status !== 'ACTIVE') {
+          throw new Error('会员卡已停用，无法使用');
+        }
+
+        // 验证余额充足
+        if (new Decimal(cardUsed.balance).lessThan(new Decimal(pendingAmount))) {
+          throw new Error(`会员卡余额不足，当前余额：¥${cardUsed.balance}，需要支付：¥${pendingAmount}`);
+        }
+
+        // 3. 扣减会员卡余额
+        await tx.card.update({
+          where: { id: cardId },
+          data: { 
+            balance: { 
+              decrement: pendingAmount 
+            } 
+          }
+        });
+
+        // 生成卡片显示名称
+        const cardDisplayName = cardUsed.isCustomCard 
+          ? `自定义面值卡(¥${new Decimal(cardUsed.customAmount).toFixed(2)})`
+          : cardUsed.cardType.name;
+
+        clearSummary = `清账（${cardDisplayName}支付）：${pendingTransaction.summary?.replace('挂账：', '') || ''}`;
+        clearNotes = `CARD_CLEAR_PENDING:${pendingId}|CARD:${cardId}`;
+      }
+
+      // 4. 设置原记录为已结清
       await tx.transaction.update({
         where: { id: pendingId },
         data: { isPending: false }
       });
 
-      // 3. 创建清账记录
+      // 5. 创建清账记录
       await tx.transaction.create({
         data: {
           id: generateId(),
           memberId: id,
-          totalAmount: Math.abs(pendingTransaction.totalAmount), // 正金额表示收回
-          actualPaidAmount: Math.abs(pendingTransaction.totalAmount),
+          totalAmount: pendingAmount, // 正金额表示收回
+          actualPaidAmount: pendingAmount,
           discountAmount: 0,
-          paymentMethod: 'OTHER',
+          paymentMethod: paymentMethodToUse,
+          cardId: cardUsed ? cardId : null,
           transactionType: 'PENDING_CLEAR',
           isPending: false,
-          summary: `清账：${pendingTransaction.summary?.replace('挂账：', '') || ''}`,
-          notes: `CLEAR_PENDING:${pendingId}`,
+          summary: clearSummary,
+          notes: clearNotes,
           transactionTime: new Date()
         }
       });
     });
 
-    return { message: '挂账记录已删除' };
+    const successMessage = paymentMethod === 'MEMBER_CARD' 
+      ? '挂账已清除，会员卡余额已扣减'
+      : '挂账记录已删除';
+
+    return { message: successMessage };
   });
 
   // 清除会员所有挂账（批量结清）
   fastify.delete('/:id/pending', async (request, reply) => {
     const { id } = request.params;
+    const { paymentMethod = 'OTHER', cardId } = request.body || {};
 
     await prisma.$transaction(async (tx) => {
       // 1. 获取所有未结清挂账
@@ -520,7 +577,52 @@ export default async function (fastify, opts) {
         return;
       }
 
-      // 2. 设置所有挂账为已结清
+      // 计算总挂账金额
+      const totalAmount = pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.totalAmount), 0);
+      
+      let cardUsed = null;
+      let paymentMethodToUse = paymentMethod;
+      let clearNotesPrefix = 'CLEAR_ALL_PENDING';
+
+      // 2. 如果选择会员卡支付，验证卡片和余额
+      if (paymentMethod === 'MEMBER_CARD') {
+        if (!cardId) {
+          throw new Error('使用会员卡支付时必须指定会员卡');
+        }
+
+        // 获取并验证会员卡
+        cardUsed = await tx.card.findUnique({
+          where: { id: cardId },
+          include: { cardType: true }
+        });
+
+        if (!cardUsed || cardUsed.memberId !== id) {
+          throw new Error('会员卡不存在或不属于该会员');
+        }
+
+        if (cardUsed.status !== 'ACTIVE') {
+          throw new Error('会员卡已停用，无法使用');
+        }
+
+        // 验证余额充足
+        if (new Decimal(cardUsed.balance).lessThan(new Decimal(totalAmount))) {
+          throw new Error(`会员卡余额不足，当前余额：¥${cardUsed.balance}，需要支付：¥${totalAmount}`);
+        }
+
+        // 3. 扣减会员卡余额
+        await tx.card.update({
+          where: { id: cardId },
+          data: { 
+            balance: { 
+              decrement: totalAmount 
+            } 
+          }
+        });
+
+        clearNotesPrefix = 'CARD_CLEAR_ALL_PENDING';
+      }
+
+      // 4. 设置所有挂账为已结清
       await tx.transaction.updateMany({
         where: { 
           memberId: id,
@@ -530,10 +632,7 @@ export default async function (fastify, opts) {
         data: { isPending: false }
       });
 
-      // 3. 计算总挂账金额并创建批量清账记录
-      const totalAmount = pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.totalAmount), 0);
-      
-      // 生成明细信息，只显示前3条，超出显示"等X笔"
+      // 5. 生成明细信息，只显示前3条，超出显示"等X笔"
       const details = pendingTransactions.map(tx => {
         let description = tx.summary?.replace('挂账：', '') || '未知项目';
         // 简化描述，提取关键信息
@@ -549,15 +648,25 @@ export default async function (fastify, opts) {
       });
       
       let summaryText;
+      const summaryPrefix = paymentMethod === 'MEMBER_CARD' 
+        ? `批量清账（${cardUsed.isCustomCard 
+            ? `自定义面值卡(¥${new Decimal(cardUsed.customAmount).toFixed(2)})` 
+            : cardUsed.cardType.name}支付）：`
+        : '批量清账：';
+      
       if (details.length <= 3) {
-        summaryText = `批量清账：${details.join('、')}`;
+        summaryText = `${summaryPrefix}${details.join('、')}`;
       } else {
-        summaryText = `批量清账：${details.slice(0, 3).join('、')}等${details.length}笔`;
+        summaryText = `${summaryPrefix}${details.slice(0, 3).join('、')}等${details.length}笔`;
       }
       
-      // 简化notes内容，只存储基本信息
+      // 生成notes信息
       const pendingIds = pendingTransactions.map(tx => tx.id).join(',');
+      const clearNotes = cardUsed 
+        ? `${clearNotesPrefix}:${pendingIds}|CARD:${cardId}`
+        : `${clearNotesPrefix}:${pendingIds}`;
       
+      // 6. 创建批量清账记录
       await tx.transaction.create({
         data: {
           id: generateId(),
@@ -565,17 +674,22 @@ export default async function (fastify, opts) {
           totalAmount: totalAmount,
           actualPaidAmount: totalAmount,
           discountAmount: 0,
-          paymentMethod: 'OTHER',
+          paymentMethod: paymentMethodToUse,
+          cardId: cardUsed ? cardId : null,
           transactionType: 'PENDING_CLEAR',
           isPending: false,
           summary: summaryText,
-          notes: `CLEAR_ALL_PENDING:${pendingIds}`,
+          notes: clearNotes,
           transactionTime: new Date()
         }
       });
     });
 
-    return { message: '所有挂账已清除' };
+    const successMessage = paymentMethod === 'MEMBER_CARD' 
+      ? '所有挂账已清除，会员卡余额已扣减'
+      : '所有挂账已清除';
+
+    return { message: successMessage };
   });
 
   
