@@ -226,7 +226,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         discountAmount: totalDiscountGiven.toNumber(),
         paymentMethod: 'MEMBER_CARD',
         cardId: null, // 多卡支付不关联单一卡片
-        notes: `${notes ? notes + ' | ' : ''}多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
+        notes: `${customTransactionTime ? '[手动设置时间] ' : ''}${notes ? notes + ' | ' : ''}多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
         transactionTime: customTransactionTime ? new Date(customTransactionTime) : new Date()
       }
     });
@@ -409,9 +409,18 @@ export default async function (fastify, opts) {
             actualPaidAmount: actualPaidAmount.toNumber(),
             discountAmount: discountAmount.toNumber(),
             paymentMethod,
-            notes: isManualAdjustment 
-              ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
-              : notes,
+            notes: (() => {
+              let finalNotes = '';
+              if (customTransactionTime) {
+                finalNotes += '[手动设置时间] ';
+              }
+              if (isManualAdjustment) {
+                finalNotes += `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`;
+              } else {
+                finalNotes += notes || '';
+              }
+              return finalNotes || null;
+            })(),
             member: memberId ? { connect: { id: memberId } } : undefined,
             staff: staffId ? { connect: { id: staffId } } : undefined,
             cardUsed: cardId ? { connect: { id: cardId } } : undefined,
@@ -630,17 +639,26 @@ export default async function (fastify, opts) {
                 actualPaidAmount: actualPaidTotal.toNumber(),
                 discountAmount: finalDiscountAmount.toNumber(),
                 paymentMethod: 'MEMBER_CARD',
-                notes: paymentDetails.length > 1 
-                  ? `多卡联合支付: ${paymentDetails.map(detail => {
+                notes: (() => {
+                  let finalNotes = '';
+                  if (customTransactionTime) {
+                    finalNotes += '[手动设置时间] ';
+                  }
+                  if (paymentDetails.length > 1) {
+                    finalNotes += `多卡联合支付: ${paymentDetails.map(detail => {
                       const card = userCards.find(c => c.id === detail.cardId);
                       const cardName = card.isCustomCard 
                         ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
                         : card.cardType.name;
                       return `${cardName}¥${new Decimal(detail.deduction).toFixed(2)}`;
-                    }).join(' + ')}`
-                  : (isManualAdjustment 
-                      ? `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`
-                      : notes),
+                    }).join(' + ')}`;
+                  } else if (isManualAdjustment) {
+                    finalNotes += `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`;
+                  } else {
+                    finalNotes += notes || '';
+                  }
+                  return finalNotes || null;
+                })(),
                 member: { connect: { id: memberId } },
                 staff: staffId ? { connect: { id: staffId } } : undefined,
                 appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
