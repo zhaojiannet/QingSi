@@ -111,7 +111,7 @@
                   placement="top"
                   effect="dark"
                 >
-                  <span class="pending-record service-items-text">
+                  <span class="pending-record">
                     {{ row.summary }}
                   </span>
                 </el-tooltip>
@@ -127,12 +127,12 @@
                 </el-tooltip>
                 <el-tooltip
                   v-else
-                  :content="row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费'"
+                  :content="formatServiceItems(row.items) || row.summary || '项目消费'"
                   placement="top"
                   effect="dark"
                 >
                   <span class="service-items-text">
-                    {{ row.items?.map(item => item.service.name).join(', ') || row.summary || '项目消费' }}
+                    {{ formatServiceItems(row.items) || row.summary || '项目消费' }}
                   </span>
                 </el-tooltip>
               </template>
@@ -153,15 +153,17 @@
             </el-table-column>
             <el-table-column label="折扣" width="180" align="left">
               <template #default="{ row }">
-                <div v-if="row.manualAdjustment">
-                  <el-tag type="warning" size="small">{{ getAdjustmentText(row) }}</el-tag>
-                  <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
-                    {{ getAdjustmentReason(row) }}
+                <div>
+                  <!-- 价格调整信息（优先显示） -->
+                  <div v-if="row.manualAdjustment">
+                    <el-tag type="warning" size="small">{{ getAdjustmentText(row) }}</el-tag>
+                    <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
+                      {{ getAdjustmentReason(row) }}
+                    </div>
                   </div>
-                </div>
-                <div v-else-if="row.member && parseFloat(row.discountAmount) > 0">
-                  <!-- 检测多卡支付 -->
-                  <div v-if="isMultiCardPayment(row)" class="multi-card-payment">
+                  
+                  <!-- 多卡支付信息（与价格调整不互斥） -->
+                  <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-payment" :class="{ 'mt-2': row.manualAdjustment }">
                     <el-tag type="warning" size="small" class="multi-card-tag">
                       <el-icon><CreditCard /></el-icon>
                       多卡 {{ getAverageDiscountDisplay(row) }}折 {{ formatCurrency(row.discountAmount) }}
@@ -170,20 +172,26 @@
                       {{ getMultiCardDetails(row) }}
                     </div>
                   </div>
-                  <!-- 单卡支付：有cardUsed信息 -->
-                  <div v-else-if="row.cardUsed">
-                    <el-tag type="primary" size="small">
-                      {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 {{ formatCurrency(row.discountAmount) }}
-                    </el-tag>
+                  
+                  <!-- 单卡支付（只在非多卡且非价格调整时显示） -->
+                  <div v-else-if="row.member && parseFloat(row.discountAmount) > 0 && !row.manualAdjustment && !isMultiCardPayment(row)">
+                    <!-- 单卡支付：有cardUsed信息 -->
+                    <div v-if="row.cardUsed">
+                      <el-tag type="primary" size="small">
+                        {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 {{ formatCurrency(row.discountAmount) }}
+                      </el-tag>
+                    </div>
+                    <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
+                    <div v-else>
+                      <el-tag type="primary" size="small">
+                        {{ getSingleCardDiscountDisplay(row) }}
+                      </el-tag>
+                    </div>
                   </div>
-                  <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
-                  <div v-else>
-                    <el-tag type="primary" size="small">
-                      {{ getSingleCardDiscountDisplay(row) }}
-                    </el-tag>
-                  </div>
+                  
+                  <!-- 无折扣信息时显示 -->
+                  <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !isMultiCardPayment(row)">-</span>
                 </div>
-                <span v-else>-</span>
               </template>
             </el-table-column>
             <el-table-column label="实付金额" width="90" align="right">
@@ -492,6 +500,18 @@ use([
   GridComponent
 ]);
 
+// 格式化服务项目名称，添加数量标记，使用顿号分隔
+const formatServiceItems = (items) => {
+  if (!items || items.length === 0) return '';
+  
+  return items.map(item => {
+    const quantity = item.quantity || 1;
+    const serviceName = item.service.name;
+    // 如果数量大于1，添加*n标记
+    return quantity > 1 ? `${serviceName}*${quantity}` : serviceName;
+  }).join('、'); // 使用顿号分隔
+};
+
 const activeTab = ref('business');
 const systemStore = useSystemStore();
 
@@ -777,11 +797,24 @@ const fetchTransactionData = async (reset = false) => {
       manualAdjustment: tx.notes && tx.notes.includes('价格调整：')
     }));
     
+    // 调试信息
+    console.log('Report fetchTransactionData debug:', {
+      apiDataLength: response.data.length,
+      processedDataLength: processedData.length,
+      reset,
+      currentDataLength: transactionList.data.length,
+      memberSearch: memberSearch.value,
+      params: params,
+      actualApiUrl: `/transactions?startDate=${params.startDate}&endDate=${params.endDate}&search=${encodeURIComponent(params.search)}`
+    });
+    
     if (reset) {
       transactionList.data = processedData;
     } else {
       transactionList.data.push(...processedData);
     }
+    
+    console.log('After update, transactionList.data.length:', transactionList.data.length);
     
     // 更新分页信息
     transactionList.pagination = {
@@ -862,7 +895,20 @@ const getAverageDiscountDisplay = (transaction) => {
   const totalAmount = parseFloat(transaction.totalAmount);
   const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
   
-  if (totalAmount <= 0) return '10.0';
+  // 对于自定义项目（totalAmount为0），尝试从notes中解析原价和折后价
+  if (totalAmount <= 0 && transaction.notes) {
+    const match = transaction.notes.match(/¥(\d+(?:\.\d+)?)\s*折后\s*¥(\d+(?:\.\d+)?)/);
+    if (match) {
+      const originalPrice = parseFloat(match[1]);
+      const discountedPrice = parseFloat(match[2]);
+      if (originalPrice > 0) {
+        const discountRate = discountedPrice / originalPrice;
+        const discount = discountRate * 10;
+        return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
+      }
+    }
+    return '7.0'; // 默认7折显示
+  }
   
   const avgDiscountRate = actualPaidAmount / totalAmount;
   const avgDiscount = avgDiscountRate * 10;
@@ -914,6 +960,22 @@ const getMultiCardList = (transaction) => {
   }
   
   return [];
+};
+
+// 获取单卡支付的折扣显示（用于智能支付接口）
+const getSingleCardDiscountDisplay = (transaction) => {
+  // 计算折扣率：实付金额 / 应付金额
+  const totalAmount = parseFloat(transaction.totalAmount);
+  const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
+  
+  if (totalAmount > 0 && actualPaidAmount > 0) {
+    const discountRate = actualPaidAmount / totalAmount;
+    const discount = discountRate * 10;
+    const discountDisplay = discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
+    return `${discountDisplay}折 ¥${formatCurrency(transaction.discountAmount)}`;
+  }
+  
+  return `会员卡 ¥${formatCurrency(transaction.discountAmount)}`;
 };
 
 const generatePieOption = (title, data) => ({
@@ -1405,6 +1467,10 @@ const getTimeTooltip = (row) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.mt-2 {
+  margin-top: 8px;
 }
 
 .multi-card-tag {
