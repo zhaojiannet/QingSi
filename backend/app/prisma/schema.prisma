@@ -28,21 +28,20 @@ model Member {
 }
 
 model Card {
-  id                  String        @id
-  memberId            String
-  cardTypeId          String
-  balance             Decimal       @default(0.00) @db.Decimal(10, 2)
-  issueDate           DateTime      @default(now())
-  expiryDate          DateTime?
-  status              CardStatus    @default(ACTIVE)
-  // 自定义面值卡相关字段
-  isCustomCard        Boolean       @default(false)
-  customAmount        Decimal?      @db.Decimal(10, 2)
-  discountSource      String        @default("card_type") // "card_type" or "custom"
-  customDiscountRate  Decimal?      @db.Decimal(4, 3)
-  cardType            CardType      @relation(fields: [cardTypeId], references: [id])
-  member              Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  transactions        Transaction[]
+  id                 String        @id
+  memberId           String
+  cardTypeId         String
+  balance            Decimal       @default(0.00) @db.Decimal(10, 2)
+  issueDate          DateTime      @default(now())
+  expiryDate         DateTime?
+  status             CardStatus    @default(ACTIVE)
+  customAmount       Decimal?      @db.Decimal(10, 2)
+  customDiscountRate Decimal?      @db.Decimal(4, 3)
+  discountSource     String        @default("card_type")
+  isCustomCard       Boolean       @default(false)
+  cardType           CardType      @relation(fields: [cardTypeId], references: [id])
+  member             Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  transactions       Transaction[]
 
   @@index([memberId])
   @@index([cardTypeId])
@@ -83,7 +82,6 @@ model Transaction {
   id               String            @id
   memberId         String?
   staffId          String?
-  customerName     String?           // 非会员顾客姓名（手动输入）
   summary          String?
   totalAmount      Decimal           @db.Decimal(10, 2)
   actualPaidAmount Decimal           @db.Decimal(10, 2)
@@ -92,12 +90,13 @@ model Transaction {
   cardId           String?
   transactionTime  DateTime          @default(now())
   notes            String?
-  transactionType  TransactionType   @default(NORMAL)  // 交易类型
-  isPending        Boolean           @default(false)   // 是否为未结清的挂账
+  customerName     String?
+  isPending        Boolean           @default(false)
+  transactionType  TransactionType   @default(NORMAL)
   appointment      Appointment?
-  cardUsed         Card?             @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  cardUsed         Card?             @relation(fields: [cardId], references: [id])
   member           Member?           @relation(fields: [memberId], references: [id])
-  staff            Staff?            @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staff            Staff?            @relation(fields: [staffId], references: [id])
   items            TransactionItem[]
 
   @@index([transactionTime])
@@ -154,9 +153,9 @@ model Appointment {
   status          AppointmentStatus @default(PENDING)
   notes           String?
   transactionId   String?           @unique
-  staff           Staff?            @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  staff           Staff?            @relation(fields: [assignedStaffId], references: [id])
   member          Member?           @relation(fields: [memberId], references: [id])
-  transaction     Transaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  transaction     Transaction?      @relation(fields: [transactionId], references: [id])
   services        Service[]         @relation("AppointmentToService")
 
   @@index([appointmentTime])
@@ -193,7 +192,6 @@ model SystemConfig {
   id                 Int     @id @default(1)
   enableLoginCaptcha Boolean @default(true)
 }
-
 
 enum MemberStatus {
   ACTIVE
@@ -244,9 +242,9 @@ enum AppointmentStatus {
 }
 
 enum TransactionType {
-  NORMAL        // 正常消费
-  PENDING       // 挂账（未结清）
-  PENDING_CLEAR // 清账（结清挂账）
+  NORMAL
+  PENDING
+  PENDING_CLEAR
 }
 
 enum Role {
