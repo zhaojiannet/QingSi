@@ -136,7 +136,7 @@
 
         <div v-else>
           <el-table :data="cartItems" style="width: 100%">
-            <el-table-column label="项目名称" min-width="180">
+            <el-table-column label="项目名称" min-width="220">
               <template #default="{ row }">
                 <div class="service-item">
                   <span class="service-name">{{ row.name }}</span>
@@ -151,7 +151,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="120" align="center">
+            <el-table-column label="数量" width="55" align="center">
               <template #default="{ row }">
                 <div class="quantity-control">
                   <el-button
@@ -174,7 +174,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="standardPrice" label="价格" width="80" align="right">
+            <el-table-column prop="standardPrice" label="价格" width="70" align="right">
                <template #default="{ row }">{{ formatCurrency(row.standardPrice) }}</template>
             </el-table-column>
           </el-table>
@@ -250,11 +250,11 @@
     </div>
     <div class="transaction-table-container">
       <el-table :data="todayTransactions" stripe class="today-table" style="width: 100%">
-        <el-table-column prop="member.name" label="姓名" width="100">
+        <el-table-column prop="member.name" label="姓名" width="110">
           <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
         </el-table-column>
         
-        <el-table-column label="会员卡" width="200">
+        <el-table-column label="会员卡" width="180">
           <template #default="{ row }">
             <!-- 多卡支付显示所有卡片 -->
             <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
@@ -305,7 +305,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="数量" width="60" align="center">
+        <el-table-column label="数量" width="55" align="center">
           <template #default="{ row }">
             <span v-if="row.items && row.items.length > 0">
               {{ row.items.reduce((sum, item) => sum + (item.quantity || 1), 0) }}
@@ -314,11 +314,26 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="应付金额" width="90" align="right">
-          <template #default="{ row }">{{ formatCurrency(row.totalAmount) }}</template>
+        <el-table-column label="金额" width="120" align="right">
+          <template #default="{ row }">
+            <div style="line-height: 1.3;">
+              <div style="color: #666; font-size: 12px;">应付：{{ formatCurrency(row.totalAmount) }}</div>
+              <div>
+                <span 
+                  :class="{
+                    'paid-amount': true,
+                    'pending-amount': row.transactionType === 'PENDING',
+                    'clear-amount': row.transactionType === 'PENDING_CLEAR'
+                  }"
+                >
+                  实付：¥{{ formatAmount(row.actualPaidAmount) }}
+                </span>
+              </div>
+            </div>
+          </template>
         </el-table-column>
         
-        <el-table-column label="折扣" width="180" align="left">
+        <el-table-column label="折扣" width="160" align="left">
           <template #default="{ row }">
             <div>
               <!-- 价格调整信息（优先显示） -->
@@ -362,19 +377,6 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="实付金额" width="90" align="right">
-          <template #default="{ row }">
-            <span 
-              :class="{
-                'paid-amount': true,
-                'pending-amount': row.transactionType === 'PENDING',
-                'clear-amount': row.transactionType === 'PENDING_CLEAR'
-              }"
-            >
-              ¥{{ formatAmount(row.actualPaidAmount) }}
-            </span>
-          </template>
-        </el-table-column>
         
         <el-table-column prop="transactionTime" label="时间" width="150" align="center">
           <template #default="{ row }">

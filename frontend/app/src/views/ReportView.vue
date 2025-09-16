@@ -82,13 +82,19 @@
               style="width: 100%"
               :row-key="row => row.id"
             >
-            <el-table-column label="姓名" width="100">
-              <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
+            <el-table-column label="姓名" width="110">
+              <template #default="{ row }">
+                <el-tooltip 
+                  v-if="row.member && row.member.phone" 
+                  :content="`会员：${row.member.name} 手机号码：${row.member.phone}`" 
+                  placement="top"
+                >
+                  <span>{{ row.member.name }}</span>
+                </el-tooltip>
+                <span v-else>{{ row.member?.name || row.customerName || '非会员用户' }}</span>
+              </template>
             </el-table-column>
-            <el-table-column label="手机号" width="120">
-              <template #default="{ row }">{{ row.member?.phone || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="会员卡" width="220">
+            <el-table-column label="会员卡" width="200">
               <template #default="{ row }">
                 <!-- 多卡支付显示所有卡片 -->
                 <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
@@ -103,7 +109,7 @@
                 <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column label="服务项目">
+            <el-table-column label="服务项目" min-width="220">
               <template #default="{ row }">
                 <el-tooltip 
                   v-if="row.transactionType === 'PENDING'"
@@ -137,7 +143,7 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="60" align="center">
+            <el-table-column label="数量" width="55" align="center">
               <template #default="{ row }">
                 <span v-if="row.items && row.items.length > 0">
                   {{ row.items.reduce((sum, item) => sum + (item.quantity || 1), 0) }}
@@ -145,13 +151,28 @@
                 <span v-else>1</span>
               </template>
             </el-table-column>
-            <el-table-column label="服务员工" width="100">
+            <el-table-column label="服务员工" width="90">
               <template #default="{ row }">{{ row.staff?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="应付金额" width="90" align="right">
-              <template #default="{ row }">{{ formatCurrency(row.totalAmount) }}</template>
+            <el-table-column label="金额" width="120" align="right">
+              <template #default="{ row }">
+                <div style="line-height: 1.3;">
+                  <div style="color: #666; font-size: 12px;">应付：{{ formatCurrency(row.totalAmount) }}</div>
+                  <div>
+                    <span 
+                      :class="{
+                        'paid-amount': true,
+                        'pending-amount': row.transactionType === 'PENDING',
+                        'clear-amount': row.transactionType === 'PENDING_CLEAR'
+                      }"
+                    >
+                      实付：{{ formatCurrency(row.actualPaidAmount) }}
+                    </span>
+                  </div>
+                </div>
+              </template>
             </el-table-column>
-            <el-table-column label="折扣" width="180" align="left">
+            <el-table-column label="折扣" width="160" align="left">
               <template #default="{ row }">
                 <div>
                   <!-- 价格调整信息（优先显示） -->
@@ -192,19 +213,6 @@
                   <!-- 无折扣信息时显示 -->
                   <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !isMultiCardPayment(row)">-</span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="实付金额" width="90" align="right">
-              <template #default="{ row }">
-                <span 
-                  :class="{
-                    'paid-amount': true,
-                    'pending-amount': row.transactionType === 'PENDING',
-                    'clear-amount': row.transactionType === 'PENDING_CLEAR'
-                  }"
-                >
-                  {{ formatCurrency(row.actualPaidAmount) }}
-                </span>
               </template>
             </el-table-column>
             <el-table-column prop="transactionTime" label="时间" width="150" align="center">
@@ -308,8 +316,18 @@
       <el-tab-pane label="会员消费排行" name="memberRanking">
         <el-table :data="memberRanking.data" v-loading="memberRanking.loading" stripe style="width: 100%">
            <el-table-column type="index" label="排名" width="80" />
-           <el-table-column prop="memberName" label="会员姓名" />
-           <el-table-column prop="memberPhone" label="手机号" />
+           <el-table-column prop="memberName" label="会员姓名">
+             <template #default="{ row }">
+               <el-tooltip 
+                 v-if="row.memberPhone" 
+                 :content="`会员：${row.memberName} 手机号码：${row.memberPhone}`" 
+                 placement="top"
+               >
+                 <span>{{ row.memberName }}</span>
+               </el-tooltip>
+               <span v-else>{{ row.memberName }}</span>
+             </template>
+           </el-table-column>
            <el-table-column prop="totalConsumption" label="消费总额(元)" align="right" sortable />
         </el-table>
         <div class="pagination-section" v-if="memberRanking.data.length > 0">
@@ -342,8 +360,18 @@
         </template>
         <div class="tip">未来15天内过生日的会员</div>
         <el-table :data="birthdayReminders.data" v-loading="birthdayReminders.loading" stripe max-height="600">
-           <el-table-column prop="name" label="姓名" />
-           <el-table-column prop="phone" label="手机号" />
+           <el-table-column prop="name" label="姓名">
+             <template #default="{ row }">
+               <el-tooltip 
+                 v-if="row.phone" 
+                 :content="`会员：${row.name} 手机号码：${row.phone}`" 
+                 placement="top"
+               >
+                 <span>{{ row.name }}</span>
+               </el-tooltip>
+               <span v-else>{{ row.name }}</span>
+             </template>
+           </el-table-column>
            <el-table-column prop="birthday" label="生日日期">
               <template #default="{ row }">{{ new Date(row.birthday).toLocaleDateString([], { month: '2-digit', day: '2-digit' }) }}</template>
            </el-table-column>
@@ -399,8 +427,18 @@
         </div>
         
         <el-table :data="pendingStats.data" v-loading="pendingStats.loading" stripe style="width: 100%">
-          <el-table-column prop="name" label="会员姓名" width="120" />
-          <el-table-column prop="phone" label="手机号" width="150" />
+          <el-table-column prop="name" label="会员姓名" width="120">
+            <template #default="{ row }">
+              <el-tooltip 
+                v-if="row.phone" 
+                :content="`会员：${row.name} 手机号码：${row.phone}`" 
+                placement="top"
+              >
+                <span>{{ row.name }}</span>
+              </el-tooltip>
+              <span v-else>{{ row.name }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="挂账总额" width="120" align="right">
             <template #default="{ row }">
               <span class="pending-amount">{{ formatCurrency(row.totalPending) }}</span>
@@ -444,8 +482,18 @@
       <el-tab-pane label="沉睡会员" name="sleepingMembers">
         <div class="tip">超过90天未产生任何消费的活跃会员</div>
         <el-table :data="sleepingMembers.data" v-loading="sleepingMembers.loading" stripe style="width: 100%">
-           <el-table-column prop="name" label="姓名" />
-           <el-table-column prop="phone" label="手机号" />
+           <el-table-column prop="name" label="姓名">
+             <template #default="{ row }">
+               <el-tooltip 
+                 v-if="row.phone" 
+                 :content="`会员：${row.name} 手机号码：${row.phone}`" 
+                 placement="top"
+               >
+                 <span>{{ row.name }}</span>
+               </el-tooltip>
+               <span v-else>{{ row.name }}</span>
+             </template>
+           </el-table-column>
            <el-table-column prop="registrationDate" label="注册日期">
               <template #default="{ row }">{{ formatDateInAppTimeZone(row.registrationDate) }}</template>
            </el-table-column>
