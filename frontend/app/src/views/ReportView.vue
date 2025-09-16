@@ -6,7 +6,7 @@
 
     <!-- 全局日期筛选器 -->
     <div class="global-filter-container">
-      <el-form :inline="true" class="date-filter-form">
+      <el-form :inline="true" class="date-filter-form" @submit.prevent>
         <el-form-item label="选择日期">
           <el-date-picker
             v-model="dateRange"
@@ -56,7 +56,7 @@
               </span>
             </h3>
             <!-- 会员筛选搜索框 -->
-            <el-form :inline="true" class="member-filter-form">
+            <el-form :inline="true" class="member-filter-form" @submit.prevent>
               <el-form-item label="搜索">
                 <el-input
                   v-model="memberSearch"

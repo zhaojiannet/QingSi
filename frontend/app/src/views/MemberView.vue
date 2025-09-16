@@ -8,7 +8,7 @@
 
     <!-- 搜索与筛选区域 -->
     <div class="filter-container">
-      <el-form :inline="true" :model="searchParams">
+      <el-form :inline="true" :model="searchParams" @submit.prevent>
         <el-form-item>
   <el-input
     v-model="searchParams.search"
