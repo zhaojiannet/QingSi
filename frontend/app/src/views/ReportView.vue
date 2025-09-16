@@ -5,7 +5,7 @@
     </div>
 
     <!-- 全局日期筛选器 -->
-    <div class="global-filter-container">
+    <div class="global-filter-container" v-show="isDateFilterRequired">
       <el-form :inline="true" class="date-filter-form" @submit.prevent>
         <el-form-item label="选择日期">
           <el-date-picker
@@ -518,6 +518,14 @@ const systemStore = useSystemStore();
 const dateRange = ref([]);
 const quickDate = ref('today');
 const memberSearch = ref('');
+
+// 需要时间筛选的报表Tab
+const dateFilterTabs = ['business', 'paymentSummary', 'cardSalesSummary', 'serviceRanking', 'memberRanking'];
+
+// 计算属性：当前Tab是否需要时间筛选
+const isDateFilterRequired = computed(() => {
+  return dateFilterTabs.includes(activeTab.value);
+});
 
 // --- 报表数据状态 ---
 const businessReport = reactive({
@@ -1042,7 +1050,14 @@ const fetchServiceRanking = async (reset = true) => {
   }
   
   try {
-    const params = { page: serviceRanking.page, limit: 25 };
+    const params = { 
+      page: serviceRanking.page, 
+      limit: 25,
+      ...(dateRange.value && dateRange.value.length === 2 && {
+        startDate: dateRange.value[0],
+        endDate: dateRange.value[1]
+      })
+    };
     const response = await getServiceRanking(params);
     
     if (reset) {
@@ -1065,7 +1080,14 @@ const fetchMemberRanking = async (reset = true) => {
   }
   
   try {
-    const params = { page: memberRanking.page, limit: 25 };
+    const params = { 
+      page: memberRanking.page, 
+      limit: 25,
+      ...(dateRange.value && dateRange.value.length === 2 && {
+        startDate: dateRange.value[0],
+        endDate: dateRange.value[1]
+      })
+    };
     const response = await getMemberRanking(params);
     
     if (reset) {
@@ -1212,6 +1234,8 @@ const reloadCurrentTabData = () => {
     },
     paymentSummary: fetchPaymentSummary,
     cardSalesSummary: fetchCardSalesSummary,
+    serviceRanking: () => fetchServiceRanking(true),
+    memberRanking: () => fetchMemberRanking(true),
   };
   const loadFunc = tabLoadFunctions[activeTab.value];
   if (loadFunc) {
@@ -1246,7 +1270,7 @@ watch(activeTab, (newTab) => {
   const dataStore = dataStores[newTab];
 
   // 切换Tab时，如果它依赖日期，就重新加载数据；如果它不依赖日期且未加载过，也加载数据
-  if (['business', 'paymentSummary', 'cardSalesSummary'].includes(newTab)) {
+  if (dateFilterTabs.includes(newTab)) {
     reloadCurrentTabData();
   } else if (dataStore && (!dataStore.data || dataStore.data.length === 0)) {
     const tabLoadFunctions = {

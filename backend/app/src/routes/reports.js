@@ -35,14 +35,29 @@ export default async function (fastify, opts) {
 
   // 项目销售排行榜
   fastify.get('/service-ranking', async (request, reply) => {
+    const { startDate, endDate } = request.query;
     const page = parseInt(request.query.page) || 1;
     const limit = parseInt(request.query.limit) || 25;
     const skip = (page - 1) * limit;
+
+    // 构建时间筛选条件
+    let timeFilter = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      timeFilter = {
+        transaction: {
+          transactionTime: { gte: start, lte: end }
+        }
+      };
+    }
 
     const result = await prisma.transactionItem.groupBy({
       by: ['serviceId'],
       _sum: { price: true },
       _count: { _all: true },
+      where: timeFilter,
       orderBy: { _sum: { price: 'desc' } },
       skip,
       take: limit,
@@ -51,6 +66,7 @@ export default async function (fastify, opts) {
     // 获取总数
     const totalResult = await prisma.transactionItem.groupBy({
       by: ['serviceId'],
+      where: timeFilter,
       _count: { _all: true },
     });
     const total = totalResult.length;
@@ -153,14 +169,27 @@ export default async function (fastify, opts) {
 
   // 会员消费排行榜
   fastify.get('/member-ranking', async (request, reply) => {
+    const { startDate, endDate } = request.query;
     const page = parseInt(request.query.page) || 1;
     const limit = parseInt(request.query.limit) || 25;
     const skip = (page - 1) * limit;
 
+    // 构建时间筛选条件
+    let timeFilter = { memberId: { not: null } };
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      timeFilter = {
+        ...timeFilter,
+        transactionTime: { gte: start, lte: end }
+      };
+    }
+
     const memberConsumptions = await prisma.transaction.groupBy({
       by: ['memberId'],
       _sum: { actualPaidAmount: true },
-      where: { memberId: { not: null } },
+      where: timeFilter,
       orderBy: { _sum: { actualPaidAmount: 'desc' } },
       skip,
       take: limit,
@@ -169,7 +198,7 @@ export default async function (fastify, opts) {
     // 获取总数
     const totalResult = await prisma.transaction.groupBy({
       by: ['memberId'],
-      where: { memberId: { not: null } },
+      where: timeFilter,
       _count: { _all: true },
     });
     const total = totalResult.length;
@@ -279,6 +308,9 @@ export default async function (fastify, opts) {
       },
       where: {
         transactionTime: { gte: start, lte: end },
+        transactionType: { 
+          notIn: ['PENDING']  // 排除挂账记录
+        }
       },
     });
     
@@ -313,27 +345,30 @@ export default async function (fastify, opts) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
 
-    // 查找所有“办卡”类型的交易
-    const cardSaleTransactions = await prisma.transaction.findMany({
+    // 改用Card表的issueDate统计办卡情况
+    const cards = await prisma.card.findMany({
       where: {
-        transactionTime: { gte: start, lte: end },
-        summary: {
-          startsWith: '办理【',
-        },
+        issueDate: { gte: start, lte: end }
       },
+      include: {
+        cardType: true
+      }
     });
 
-    // 在内存中进行分组统计
+    // 按卡片类型分组统计
     const summaryMap = new Map();
-    for (const tx of cardSaleTransactions) {
-      let cardName = tx.summary.replace('办理【', '').replace('】', '');
+    for (const card of cards) {
+      let cardName;
+      let amount;
       
-      // 统一自定义面值卡的分类：将所有不同面值的自定义面值卡归类为"自定义面值卡"
-      if (cardName.includes('自定义面值卡(¥')) {
+      // 处理自定义面值卡
+      if (card.isCustomCard) {
         cardName = '自定义面值卡';
+        amount = new Decimal(card.customAmount);
+      } else {
+        cardName = card.cardType.name;
+        amount = new Decimal(card.cardType.initialPrice);
       }
-      
-      const amount = new Decimal(tx.actualPaidAmount);
       
       if (summaryMap.has(cardName)) {
         const current = summaryMap.get(cardName);

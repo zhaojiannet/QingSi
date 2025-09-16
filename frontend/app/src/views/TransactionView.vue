@@ -109,12 +109,13 @@
             <el-date-picker
               v-model="form.transactionTime"
               type="datetime"
-              placeholder="选择交易时间"
+              placeholder="默认为当前时间（可选择自定义）"
               size="large"
               style="width: 100%"
               format="YYYY-MM-DD HH:mm:ss"
               value-format="YYYY-MM-DD HH:mm:ss"
               @change="onTransactionTimeChange"
+              clearable
             />
           </el-form-item>
           
@@ -570,7 +571,7 @@ const getInitialForm = () => ({
     paymentMethod: 'CASH',
     cardId: null,
     notes: '',
-    transactionTime: new Date().toISOString().slice(0, 19).replace('T', ' '), // 默认当前时间，格式化为YYYY-MM-DD HH:mm:ss
+    transactionTime: null, // 改为null，不设置默认值，使用系统提交时间
     isManualTime: false, // 标记是否手动选择了时间
 });
 const form = reactive(getInitialForm());
@@ -698,11 +699,11 @@ const serviceQuantities = reactive({});
 
 // 时间变化处理函数
 const onTransactionTimeChange = (value) => {
-  // 判断是否手动选择了时间（与当前时间相差超过1分钟即认为是手动选择）
-  const now = new Date();
-  const selectedTime = new Date(value);
-  const timeDifference = Math.abs(now - selectedTime);
-  form.isManualTime = timeDifference > 60000; // 1分钟 = 60000毫秒
+  if (value) {
+    form.isManualTime = true; // 有值说明用户手动选择了
+  } else {
+    form.isManualTime = false; // 清空则恢复使用系统时间
+  }
 };
 
 const cartItems = computed(() => {
@@ -1385,14 +1386,12 @@ const handleCheckout = async () => {
       submitData.customerName = memberQuery.value.trim();
     }
     
-    // 添加自定义交易时间
-    if (form.transactionTime) {
+    // 只有手动选择了时间才添加customTransactionTime
+    if (form.transactionTime && form.isManualTime) {
       submitData.customTransactionTime = form.transactionTime;
-      // 如果是手动选择的时间，在备注中添加标记
-      if (form.isManualTime) {
-        submitData.notes = `[手动设置时间] ${submitData.notes || ''}`.trim();
-      }
+      submitData.notes = `[手动设置时间] ${submitData.notes || ''}`.trim();
     }
+    // 不传customTransactionTime时，后端会使用当前时间
     
     // 如果有价格调整，添加相关信息
     if (manualPriceAdjustment.isActive) {
