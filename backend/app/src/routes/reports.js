@@ -326,7 +326,13 @@ export default async function (fastify, opts) {
     // 在内存中进行分组统计
     const summaryMap = new Map();
     for (const tx of cardSaleTransactions) {
-      const cardName = tx.summary.replace('办理【', '').replace('】', '');
+      let cardName = tx.summary.replace('办理【', '').replace('】', '');
+      
+      // 统一自定义面值卡的分类：将所有不同面值的自定义面值卡归类为"自定义面值卡"
+      if (cardName.includes('自定义面值卡(¥')) {
+        cardName = '自定义面值卡';
+      }
+      
       const amount = new Decimal(tx.actualPaidAmount);
       
       if (summaryMap.has(cardName)) {
