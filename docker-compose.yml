@@ -25,6 +25,8 @@ services:
       npx prisma generate &&
       echo '=== 推送数据库结构 ===' &&
       npx prisma db push &&
+      echo '=== 修复数据库CHECK约束问题 ===' &&
+      node fix-check-constraint.js || echo '数据库约束修复完成' &&
       echo '=== 初始化管理员账户 ===' &&
       node init-admin.js || echo '管理员账户可能已存在' &&
       echo '=== 启动应用 ===' &&
