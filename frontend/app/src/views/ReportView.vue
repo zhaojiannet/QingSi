@@ -35,7 +35,7 @@
       <el-tab-pane label="营业概览" name="business">
         <el-row :gutter="20" v-loading="businessReport.loading" class="stats-cards">
           <el-col :span="6" :xs="12">
-            <el-statistic title="总收入 (元)" :value="businessReport.data.totalRevenue" />
+            <el-statistic title="总消费 (元)" :value="businessReport.data.totalRevenue" />
           </el-col>
           <el-col :span="6" :xs="12">
             <el-statistic title="卡耗 (元)" :value="businessReport.data.cardConsumption" />

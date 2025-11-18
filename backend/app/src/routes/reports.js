@@ -10,34 +10,54 @@ export default async function (fastify, opts) {
     if (!startDate || !endDate) {
       return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
     }
+
+    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return reply.code(400).send({ message: '日期格式无效' });
+    }
+    if (start > end) {
+      return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
+    }
     end.setHours(23, 59, 59, 999);
+
+    // 查询所有交易记录，排除挂账清账记录
     const transactions = await prisma.transaction.findMany({
-      where: { transactionTime: { gte: start, lte: end } },
+      where: {
+        transactionTime: { gte: start, lte: end },
+        transactionType: { not: 'PENDING_CLEAR' }  // 排除挂账清账记录
+      },
     });
-    const totalRevenue = transactions.reduce(
-      (sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0)
+
+    // 总消费：统计所有消费（包括挂账）
+    // 挂账的 actualPaidAmount 是负数，需要取绝对值才是真实消费金额
+    const totalConsumption = transactions.reduce(
+      (sum, t) => sum.plus(new Decimal(Math.abs(t.actualPaidAmount))), new Decimal(0)
     );
+
+    // 会员卡消费：只统计会员卡支付的实际消费
     const cardConsumption = transactions
-      .filter(t => t.paymentMethod === 'MEMBER_CARD')
+      .filter(t => t.paymentMethod === 'MEMBER_CARD' && t.transactionType === 'NORMAL')
       .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0));
+
     const totalCustomers = new Set(transactions.map(t => t.memberId || t.id)).size;
+
     return {
-      totalRevenue: totalRevenue.toFixed(2),
-      cardConsumption: cardConsumption.toFixed(2),
-      cashAndOnline: totalRevenue.minus(cardConsumption).toFixed(2),
-      totalTransactions: transactions.length,
-      totalCustomers,
-      averageOrderValue: totalCustomers > 0 ? totalRevenue.div(totalCustomers).toFixed(2) : "0.00",
+      totalRevenue: totalConsumption.toFixed(2),  // 总消费（包括挂账）
+      cardConsumption: cardConsumption.toFixed(2),  // 会员卡消费
+      totalCustomers,  // 总客数
+      averageOrderValue: totalCustomers > 0 ? totalConsumption.div(totalCustomers).toFixed(2) : "0.00",  // 客单价
     };
   });
 
   // 项目销售排行榜
   fastify.get('/service-ranking', async (request, reply) => {
     const { startDate, endDate } = request.query;
-    const page = parseInt(request.query.page) || 1;
-    const limit = parseInt(request.query.limit) || 25;
+
+    // 验证和限制分页参数
+    const page = Math.max(1, parseInt(request.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));  // 最大100条
     const skip = (page - 1) * limit;
 
     // 构建时间筛选条件
@@ -99,8 +119,9 @@ export default async function (fastify, opts) {
 
   // 沉睡会员报表 - 基于Transaction表动态计算，避免lastVisitDate不同步问题
   fastify.get('/sleeping-members', async (request, reply) => {
-    const page = parseInt(request.query.page) || 1;
-    const limit = parseInt(request.query.limit) || 25;
+    // 验证和限制分页参数
+    const page = Math.max(1, parseInt(request.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));
     const skip = (page - 1) * limit;
 
     const ninetyDaysAgo = new Date();
@@ -170,8 +191,10 @@ export default async function (fastify, opts) {
   // 会员消费排行榜
   fastify.get('/member-ranking', async (request, reply) => {
     const { startDate, endDate } = request.query;
-    const page = parseInt(request.query.page) || 1;
-    const limit = parseInt(request.query.limit) || 25;
+
+    // 验证和限制分页参数
+    const page = Math.max(1, parseInt(request.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));
     const skip = (page - 1) * limit;
 
     // 构建时间筛选条件
@@ -294,8 +317,16 @@ export default async function (fastify, opts) {
     if (!startDate || !endDate) {
       return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
     }
+
+    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return reply.code(400).send({ message: '日期格式无效' });
+    }
+    if (start > end) {
+      return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
+    }
     end.setHours(23, 59, 59, 999);
 
     const result = await prisma.transaction.groupBy({
@@ -341,8 +372,16 @@ export default async function (fastify, opts) {
     if (!startDate || !endDate) {
       return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
     }
+
+    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return reply.code(400).send({ message: '日期格式无效' });
+    }
+    if (start > end) {
+      return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
+    }
     end.setHours(23, 59, 59, 999);
 
     // 改用Card表的issueDate统计办卡情况
@@ -395,8 +434,9 @@ export default async function (fastify, opts) {
 
   // --- 挂账统计报表 ---
   fastify.get('/pending-stats', async (request, reply) => {
-    const page = parseInt(request.query.page) || 1;
-    const limit = parseInt(request.query.limit) || 25;
+    // 验证和限制分页参数
+    const page = Math.max(1, parseInt(request.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));
     const skip = (page - 1) * limit;
 
     try {

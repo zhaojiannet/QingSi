@@ -12,8 +12,6 @@ services:
       - "5555:5555"
     env_file:
       - ./backend/app/.env
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
     restart: unless-stopped
     # command: tail -f /dev/null # <-- 换成这个命令，让容器一直挂起
     command: >
