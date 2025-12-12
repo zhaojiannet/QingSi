@@ -443,11 +443,9 @@ body .el-tag {
   display: flex !important;
   flex-direction: row-reverse !important;
   justify-content: flex-start !important;
+  gap: 12px !important;
 }
 .el-message-box.void-confirm-dialog .el-message-box__btns .el-button {
   margin: 0 !important;
-}
-.el-message-box.void-confirm-dialog .el-message-box__btns .el-button + .el-button {
-  margin-right: 12px !important;
 }
 </style>
