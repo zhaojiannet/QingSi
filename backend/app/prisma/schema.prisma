@@ -189,8 +189,32 @@ model RefreshToken {
 }
 
 model SystemConfig {
-  id                 Int     @id @default(1)
-  enableLoginCaptcha Boolean @default(true)
+  id                    Int       @id @default(1)
+  enableLoginCaptcha    Boolean   @default(true)
+  enableTransactionVoid Boolean   @default(false)
+  voidEnabledAt         DateTime?
+}
+
+model VoidLog {
+  id               String   @id @default(cuid())
+  originalTxId     String
+  originalTxTime   DateTime
+  memberId         String?
+  memberName       String?
+  summary          String?
+  totalAmount      Decimal  @db.Decimal(10, 2)
+  actualPaidAmount Decimal  @db.Decimal(10, 2)
+  paymentMethod    String
+  cardInfo         String?  @db.Text
+  balanceRestored  String?  @db.Text
+  voidedAt         DateTime @default(now())
+  voidedBy         String
+  voidedByName     String
+  reason           String?
+
+  @@index([voidedAt])
+  @@index([memberId])
+  @@index([voidedBy])
 }
 
 enum MemberStatus {

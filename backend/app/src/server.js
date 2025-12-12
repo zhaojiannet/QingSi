@@ -23,6 +23,7 @@ import reportRoutes from './routes/reports.js';
 import userRoutes from './routes/users.js';
 import configRoutes from './routes/configs.js';
 import cardRoutes from './routes/cards.js';
+import voidLogRoutes from './routes/voidLogs.js';
 import tokenCleaner from './utils/tokenCleaner.js';
 import { timezonePlugin } from './utils/timezone.js';
 
@@ -198,6 +199,9 @@ fastify.register(serviceRoutes, { prefix: '/api/services', ...adminOnlyAccess })
 
 // 配置路由 - GET 公开访问（登录页需要），PATCH 需要管理员权限（在路由内部控制）
 fastify.register(configRoutes, { prefix: '/api/configs' });
+
+// 撤销日志路由 - 需要 MANAGER/ADMIN 权限（在路由内部控制）
+fastify.register(voidLogRoutes, { prefix: '/api/void-logs' });
 
 // 启动服务
 const start = async () => {

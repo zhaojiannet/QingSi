@@ -1009,27 +1009,27 @@ export default async function (fastify, opts) {
   // 删除交易记录接口
   fastify.delete('/:transactionId', async (request, reply) => {
     const { transactionId } = request.params;
-    
+
     try {
       // 检查交易记录是否存在
       const transaction = await prisma.transaction.findUnique({
         where: { id: transactionId },
-        include: { 
+        include: {
           member: { select: { name: true } },
           items: { include: { service: { select: { name: true } } } }
         }
       });
-      
+
       if (!transaction) {
         return reply.code(404).send({ message: '交易记录不存在' });
       }
-      
+
       // 删除交易记录（会级联删除相关的交易项目）
       await prisma.transaction.delete({
         where: { id: transactionId }
       });
-      
-      return { 
+
+      return {
         message: '交易记录删除成功',
         deletedTransaction: {
           id: transaction.id,
@@ -1038,10 +1038,353 @@ export default async function (fastify, opts) {
           transactionTime: transaction.transactionTime
         }
       };
-      
+
     } catch (error) {
       return reply.code(500).send({ message: '删除交易记录失败', error: error.message });
     }
   });
 
+  // --- 撤销交易接口 ---
+  fastify.post('/:transactionId/void', {
+    onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])]
+  }, async (request, reply) => {
+    const { transactionId } = request.params;
+    const { reason } = request.body || {};
+    const userId = request.user.id;
+
+    // 1. 验证撤销原因必填（在事务外先验证，减少事务时间）
+    if (!reason || !reason.trim()) {
+      return reply.code(400).send({ message: '请填写撤销原因' });
+    }
+
+    // 2. 获取操作人信息（事务外查询，减少事务时间）
+    const operator = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { staff: { select: { name: true } } }
+    });
+    const operatorName = operator?.staff?.name || operator?.username || '未知用户';
+
+    // 3. 执行撤销事务（所有关键检查和操作在事务内完成）
+    try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 3.1 检查撤销功能是否启用（在事务内检查，防止竞态条件）
+      const config = await tx.systemConfig.findUnique({ where: { id: 1 } });
+      if (!config?.enableTransactionVoid) {
+        throw new Error('VOID_DISABLED');
+      }
+
+      // 检查功能是否已过期（10分钟）
+      if (config.voidEnabledAt) {
+        const enabledTime = new Date(config.voidEnabledAt).getTime();
+        const tenMinutes = 10 * 60 * 1000;
+        if (Date.now() - enabledTime > tenMinutes) {
+          // 自动关闭过期的功能
+          await tx.systemConfig.update({
+            where: { id: 1 },
+            data: { enableTransactionVoid: false, voidEnabledAt: null }
+          });
+          throw new Error('VOID_DISABLED');
+        }
+      }
+
+      // 3.2 获取交易记录
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: {
+          member: { select: { id: true, name: true } },
+          cardUsed: {
+            include: { cardType: true }
+          },
+          items: { include: { service: true } }
+        }
+      });
+
+      if (!transaction) {
+        throw new Error('TX_NOT_FOUND');
+      }
+
+      // 3.3 检查是否在7天内
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      if (new Date(transaction.transactionTime) < sevenDaysAgo) {
+        throw new Error('TX_TOO_OLD');
+      }
+      const balanceRestored = [];
+
+      // 5.1 恢复会员卡余额
+      if (transaction.paymentMethod === 'MEMBER_CARD') {
+        // 检查是否为挂账交易（挂账不需要恢复余额）
+        if (transaction.transactionType === 'PENDING' || transaction.isPending) {
+          // 挂账交易不需要恢复余额
+        } else if (transaction.cardId && transaction.cardUsed) {
+          // 单卡支付：恢复余额
+          const amountToRestore = new Decimal(transaction.actualPaidAmount);
+          await tx.card.update({
+            where: { id: transaction.cardId },
+            data: { balance: { increment: amountToRestore.toNumber() } }
+          });
+
+          const cardName = transaction.cardUsed.isCustomCard
+            ? `自定义面值卡(¥${new Decimal(transaction.cardUsed.customAmount).toFixed(2)})`
+            : transaction.cardUsed.cardType.name;
+
+          const updatedCard = await tx.card.findUnique({ where: { id: transaction.cardId } });
+          balanceRestored.push({
+            cardId: transaction.cardId,
+            cardName: cardName,
+            amountRestored: amountToRestore.toNumber(),
+            newBalance: new Decimal(updatedCard.balance).toNumber()
+          });
+        } else if (transaction.notes && transaction.notes.includes('多卡联合支付:')) {
+          // 多卡支付：解析notes恢复余额
+          const multiCardRestored = await restoreMultiCardBalance(tx, transaction);
+          balanceRestored.push(...multiCardRestored);
+        }
+      }
+
+      // 5.2 如果是清账交易，恢复原挂账记录状态
+      if (transaction.transactionType === 'PENDING_CLEAR' && transaction.notes) {
+        // 从notes中解析原挂账记录ID
+        // 格式: "CLEAR_PENDING:pendingId" 或 "CARD_CLEAR_PENDING:pendingId|CARD:cardId"
+        // 或批量: "CLEAR_ALL_PENDING:id1,id2,id3" 或 "CARD_CLEAR_ALL_PENDING:id1,id2,id3|CARD:cardId"
+        let pendingIds = [];
+
+        // 单笔清账
+        const singleMatch = transaction.notes.match(/(?:CARD_)?CLEAR_PENDING:([a-zA-Z0-9]+)/);
+        if (singleMatch) {
+          pendingIds = [singleMatch[1]];
+        }
+
+        // 批量清账
+        const batchMatch = transaction.notes.match(/(?:CARD_)?CLEAR_ALL_PENDING:([a-zA-Z0-9,]+)/);
+        if (batchMatch) {
+          pendingIds = batchMatch[1].split(',').filter(id => id.trim());
+        }
+
+        if (pendingIds.length > 0) {
+          // 恢复挂账记录的 isPending 状态
+          const updateResult = await tx.transaction.updateMany({
+            where: {
+              id: { in: pendingIds },
+              transactionType: 'PENDING'
+            },
+            data: { isPending: true }
+          });
+
+          balanceRestored.push({
+            action: 'PENDING_RESTORED',
+            count: updateResult.count,
+            message: `已恢复 ${updateResult.count} 条挂账记录`
+          });
+        } else {
+          balanceRestored.push({
+            warning: '未能从清账记录中解析出关联的挂账ID，请手动检查'
+          });
+        }
+      }
+
+      // 5.3 如果是办卡交易，删除对应的会员卡
+      let deletedCard = null;
+      if (transaction.summary && transaction.summary.includes('办理【')) {
+        // 从 summary 中解析卡名，格式: "办理【卡名 折扣】"
+        const cardMatch = transaction.summary.match(/办理【(.+?)(?:\s+[\d.]+折)?】/);
+        if (cardMatch && transaction.memberId) {
+          const cardName = cardMatch[1].trim();
+
+          // 查找该会员的匹配卡片（优先匹配发行时间接近的）
+          const memberCards = await tx.card.findMany({
+            where: {
+              memberId: transaction.memberId,
+              OR: [
+                { cardType: { name: cardName } },
+                { isCustomCard: true }
+              ]
+            },
+            include: { cardType: true },
+            orderBy: { issueDate: 'desc' }
+          });
+
+          // 找到与办卡交易时间最接近的卡片
+          const txTime = new Date(transaction.transactionTime).getTime();
+          let targetCard = null;
+          let minTimeDiff = Infinity;
+
+          for (const card of memberCards) {
+            const cardTime = new Date(card.issueDate).getTime();
+            const timeDiff = Math.abs(cardTime - txTime);
+            // 只匹配5分钟内创建的卡片
+            if (timeDiff < 5 * 60 * 1000 && timeDiff < minTimeDiff) {
+              // 检查卡名是否匹配
+              const cardDisplayName = card.isCustomCard
+                ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
+                : card.cardType.name;
+              if (cardDisplayName.includes(cardName) || cardName.includes(card.cardType?.name || '')) {
+                minTimeDiff = timeDiff;
+                targetCard = card;
+              }
+            }
+          }
+
+          if (targetCard) {
+            deletedCard = {
+              cardId: targetCard.id,
+              cardName: targetCard.isCustomCard
+                ? `自定义面值卡(¥${new Decimal(targetCard.customAmount).toFixed(2)})`
+                : targetCard.cardType.name,
+              balance: new Decimal(targetCard.balance).toNumber()
+            };
+
+            // 删除该会员卡
+            await tx.card.delete({
+              where: { id: targetCard.id }
+            });
+
+            balanceRestored.push({
+              action: 'CARD_DELETED',
+              cardId: targetCard.id,
+              cardName: deletedCard.cardName,
+              message: `会员卡已删除`
+            });
+          } else {
+            balanceRestored.push({
+              warning: '未找到与此办卡交易关联的会员卡，请手动检查'
+            });
+          }
+        }
+      }
+
+      // 5.4 生成卡片信息快照
+      let cardInfo = null;
+      if (transaction.cardUsed) {
+        cardInfo = JSON.stringify({
+          cardId: transaction.cardUsed.id,
+          isCustomCard: transaction.cardUsed.isCustomCard,
+          customAmount: transaction.cardUsed.customAmount,
+          cardTypeName: transaction.cardUsed.cardType?.name
+        });
+      }
+
+      // 5.5 创建撤销日志
+      const voidLog = await tx.voidLog.create({
+        data: {
+          originalTxId: transaction.id,
+          originalTxTime: transaction.transactionTime,
+          memberId: transaction.memberId,
+          memberName: transaction.member?.name,
+          summary: transaction.summary || transaction.items.map(i => i.service.name).join('、'),
+          totalAmount: transaction.totalAmount,
+          actualPaidAmount: transaction.actualPaidAmount,
+          paymentMethod: transaction.paymentMethod,
+          cardInfo: cardInfo,
+          balanceRestored: JSON.stringify(balanceRestored),
+          voidedBy: userId,
+          voidedByName: operatorName,
+          reason: reason || null
+        }
+      });
+
+      // 5.6 删除交易记录
+      await tx.transaction.delete({
+        where: { id: transactionId }
+      });
+
+      return { voidLog, balanceRestored };
+    });
+
+    return {
+      success: true,
+      message: '交易撤销成功',
+      voidLog: result.voidLog,
+      balanceRestored: result.balanceRestored
+    };
+  } catch (error) {
+    // 处理事务内抛出的业务错误
+    if (error.message === 'VOID_DISABLED') {
+      return reply.code(403).send({ message: '交易撤销功能未启用或已过期' });
+    }
+    if (error.message === 'TX_NOT_FOUND') {
+      return reply.code(404).send({ message: '交易记录不存在' });
+    }
+    if (error.message === 'TX_TOO_OLD') {
+      return reply.code(400).send({ message: '超过7天的交易无法撤销' });
+    }
+    // 其他未知错误
+    throw error;
+  }
+  });
+
+}
+
+// 辅助函数：恢复多卡支付的余额
+async function restoreMultiCardBalance(tx, transaction) {
+  const balanceRestored = [];
+
+  // 解析notes中的多卡支付信息
+  // 格式: "多卡联合支付: 300元储值卡¥12.00 + 500元储值卡¥3.50"
+  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
+  if (!match) return balanceRestored;
+
+  const cardsText = match[1].trim();
+  const cardParts = cardsText.split(' + ');
+
+  for (const part of cardParts) {
+    // 解析格式: "卡名¥金额"
+    const lastYenIndex = part.lastIndexOf('¥');
+    if (lastYenIndex <= 0) continue;
+
+    const cardName = part.substring(0, lastYenIndex).trim();
+    const amountStr = part.substring(lastYenIndex + 1);
+    const amount = parseFloat(amountStr);
+
+    if (isNaN(amount) || amount <= 0) continue;
+
+    // 通过会员ID和卡名查找卡片
+    const card = await findCardByNameAndMember(tx, cardName, transaction.memberId);
+
+    if (card) {
+      await tx.card.update({
+        where: { id: card.id },
+        data: { balance: { increment: amount } }
+      });
+
+      const updatedCard = await tx.card.findUnique({ where: { id: card.id } });
+      balanceRestored.push({
+        cardId: card.id,
+        cardName: cardName,
+        amountRestored: amount,
+        newBalance: new Decimal(updatedCard.balance).toNumber()
+      });
+    } else {
+      balanceRestored.push({
+        warning: `卡片"${cardName}"未找到，无法恢复 ¥${amount}`
+      });
+    }
+  }
+
+  return balanceRestored;
+}
+
+// 辅助函数：通过卡名和会员ID查找卡片
+async function findCardByNameAndMember(tx, cardName, memberId) {
+  // 处理自定义面值卡格式: "自定义面值卡(¥100.00)"
+  const customMatch = cardName.match(/自定义面值卡\(¥([\d.]+)\)/);
+  if (customMatch) {
+    const customAmount = parseFloat(customMatch[1]);
+    return tx.card.findFirst({
+      where: {
+        memberId: memberId,
+        isCustomCard: true,
+        customAmount: customAmount
+      }
+    });
+  }
+
+  // 普通卡片：通过卡类型名称查找
+  return tx.card.findFirst({
+    where: {
+      memberId: memberId,
+      cardType: { name: cardName }
+    },
+    include: { cardType: true }
+  });
 }

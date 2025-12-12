@@ -59,3 +59,12 @@ export const createMultiCardTransaction = (data) => {
     data,
   });
 };
+
+// 撤销交易
+export const voidTransaction = (transactionId, reason = null) => {
+  return request({
+    url: `/transactions/${transactionId}/void`,
+    method: 'post',
+    data: { reason },
+  });
+};

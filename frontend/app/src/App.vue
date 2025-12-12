@@ -437,4 +437,17 @@ body { margin: 0; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hira
 body .el-tag {
   font-size: var(--dynamic-tag-font-size, 12px) !important;
 }
+
+/* 撤销确认对话框按钮位置交换 */
+.el-message-box.void-confirm-dialog .el-message-box__btns {
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  justify-content: flex-start !important;
+}
+.el-message-box.void-confirm-dialog .el-message-box__btns .el-button {
+  margin: 0 !important;
+}
+.el-message-box.void-confirm-dialog .el-message-box__btns .el-button + .el-button {
+  margin-right: 12px !important;
+}
 </style>

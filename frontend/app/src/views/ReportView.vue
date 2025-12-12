@@ -229,6 +229,14 @@
                 </el-tooltip>
               </template>
             </el-table-column>
+            <el-table-column v-if="canShowVoidButton" label="操作" width="80" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-tooltip v-if="!canVoidTransaction(row)" content="超过7天无法撤销" placement="top">
+                  <el-button class="void-btn void-btn-disabled" size="small" link disabled>撤销</el-button>
+                </el-tooltip>
+                <el-button v-else class="void-btn" size="small" link @click="openVoidDialog(row)">撤销</el-button>
+              </template>
+            </el-table-column>
             </el-table>
             
             <!-- 分页加载更多区域 -->
@@ -521,6 +529,60 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 撤销确认对话框 -->
+    <el-dialog
+      v-model="voidDialog.visible"
+      title="确认撤销交易"
+      width="450px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="voidDialog.transaction" class="void-info">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="交易时间">
+            {{ formatShortDateInAppTimeZone(voidDialog.transaction.transactionTime) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="会员">
+            {{ voidDialog.transaction.member?.name || voidDialog.transaction.customerName || '非会员' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="消费项目">
+            {{ voidDialog.transaction.summary || formatServiceItems(voidDialog.transaction.items) || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="支付金额">
+            <span class="amount">¥{{ voidDialog.transaction.actualPaidAmount }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-alert
+          v-if="voidDialog.transaction.member && voidDialog.transaction.paymentMethod === 'MEMBER_CARD'"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 16px;"
+        >
+          撤销后，会员卡余额将恢复扣除金额
+        </el-alert>
+
+        <el-form :model="voidDialog" label-width="100px" style="margin-top: 16px;">
+          <el-form-item label="撤销原因" required>
+            <el-input
+              v-model="voidDialog.reason"
+              type="textarea"
+              :rows="2"
+              placeholder="请输入撤销原因（必填）"
+              maxlength="200"
+              show-word-limit
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="voidDialog.visible = false">取消</el-button>
+        <el-button type="danger" :loading="voidDialog.loading" @click="confirmVoid" :disabled="!voidDialog.reason?.trim()">
+          确认撤销
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -531,10 +593,13 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
-import { Search, CreditCard } from '@element-plus/icons-vue';
+import { Search, CreditCard, Edit } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary, getPendingStats } from '@/api/report.js';
-import { getTransactionsByDateRange } from '@/api/transaction.js';
+import { getTransactionsByDateRange, voidTransaction } from '@/api/transaction.js';
+import { getSystemConfig } from '@/api/config.js';
 import { useSystemStore } from '@/stores/system';
+import { useUserStore } from '@/stores/user';
 import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 import { formatCurrency } from '@/utils/currency.js';
@@ -562,10 +627,20 @@ const formatServiceItems = (items) => {
 
 const activeTab = ref('business');
 const systemStore = useSystemStore();
+const userStore = useUserStore();
 
 const dateRange = ref([]);
 const quickDate = ref('today');
 const memberSearch = ref('');
+
+// 撤销功能相关状态
+const systemConfig = ref({ enableTransactionVoid: false });
+const voidDialog = reactive({
+  visible: false,
+  loading: false,
+  transaction: null,
+  reason: ''
+});
 
 // 需要时间筛选的报表Tab
 const dateFilterTabs = ['business', 'paymentSummary', 'cardSalesSummary', 'serviceRanking', 'memberRanking'];
@@ -574,6 +649,62 @@ const dateFilterTabs = ['business', 'paymentSummary', 'cardSalesSummary', 'servi
 const isDateFilterRequired = computed(() => {
   return dateFilterTabs.includes(activeTab.value);
 });
+
+// 是否可以显示撤销按钮
+const canShowVoidButton = computed(() => {
+  return systemConfig.value?.enableTransactionVoid &&
+         ['ADMIN', 'MANAGER'].includes(userStore.userRole);
+});
+
+// 检查交易是否可撤销（7天内）
+const canVoidTransaction = (transaction) => {
+  if (!canShowVoidButton.value) return false;
+  const txTime = new Date(transaction.transactionTime);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  return txTime >= sevenDaysAgo;
+};
+
+// 打开撤销对话框
+const openVoidDialog = async (transaction) => {
+  try {
+    await ElMessageBox.confirm(
+      '交易撤销是高风险操作，撤销后将永久删除交易记录并恢复相关金额。此操作不可逆，请确认您已了解后果。',
+      '危险操作警告',
+      {
+        confirmButtonText: '我已了解，继续操作',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+        cancelButtonClass: 'el-button--primary',
+        customClass: 'void-confirm-dialog',
+      }
+    );
+    voidDialog.transaction = transaction;
+    voidDialog.reason = '';
+    voidDialog.visible = true;
+  } catch {
+    // 用户取消
+  }
+};
+
+// 确认撤销
+const confirmVoid = async () => {
+  if (!voidDialog.transaction) return;
+
+  voidDialog.loading = true;
+  try {
+    const result = await voidTransaction(voidDialog.transaction.id, voidDialog.reason || null);
+    ElMessage.success('交易撤销成功' + (result.balanceRestored?.length > 0 ? '，会员卡余额已恢复' : ''));
+    voidDialog.visible = false;
+    // 刷新交易列表
+    fetchTransactionData(true);
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '撤销失败');
+  } finally {
+    voidDialog.loading = false;
+  }
+};
 
 // --- 报表数据状态 ---
 const businessReport = reactive({
@@ -1291,7 +1422,14 @@ const reloadCurrentTabData = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
+  // 加载系统配置
+  try {
+    systemConfig.value = await getSystemConfig();
+  } catch (e) {
+    console.error('获取系统配置失败:', e);
+  }
+
   handleQuickDateChange('today');
   // 设置页面滚动监听
   scrollCleanup = setupScrollListener();
@@ -1691,6 +1829,37 @@ const getTimeTooltip = (row) => {
   font-weight: 500;
   display: inline-flex;
   align-items: center;
+}
+
+/* 撤销对话框样式 */
+.void-info .amount {
+  font-weight: bold;
+  color: #f56c6c;
+}
+
+/* 撤销按钮样式 */
+.void-btn {
+  color: #f56c6c !important;
+  font-weight: 500;
+  border: 1px solid #f56c6c !important;
+  padding: 4px 10px !important;
+  border-radius: 4px;
+}
+
+.void-btn:hover {
+  color: #fff !important;
+  background-color: #f56c6c !important;
+}
+
+.void-btn-disabled {
+  color: #c0c4cc !important;
+  border-color: #e4e7ed !important;
+  cursor: not-allowed;
+}
+
+.void-btn-disabled:hover {
+  color: #c0c4cc !important;
+  background-color: transparent !important;
 }
 
 </style>

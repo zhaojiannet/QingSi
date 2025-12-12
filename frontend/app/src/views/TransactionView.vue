@@ -392,6 +392,29 @@
             </el-tooltip>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="canShowVoidButton" label="操作" width="80" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="!canVoidTransaction(row)"
+              content="超过7天无法撤销"
+              placement="top"
+            >
+              <el-button class="void-btn void-btn-disabled" size="small" link disabled>
+                撤销
+              </el-button>
+            </el-tooltip>
+            <el-button
+              v-else
+              class="void-btn"
+              size="small"
+              link
+              @click="openVoidDialog(row)"
+            >
+              撤销
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
       
       <!-- 分页加载更多区域 -->
@@ -482,12 +505,76 @@
       
       <template #footer>
         <el-button @click="priceConfirmDialog.visible = false">取消</el-button>
-        <el-button 
-          type="primary" 
+        <el-button
+          type="primary"
           @click="applyPriceAdjustment"
           :disabled="!priceConfirmDialog.reason?.trim()"
         >
           确认调整
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 撤销确认对话框 -->
+    <el-dialog
+      v-model="voidDialog.visible"
+      title="确认撤销交易"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <el-alert type="warning" :closable="false" style="margin-bottom: 20px;">
+        <template #title>
+          <div style="font-weight: bold; color: #e6a23c;">
+            撤销后将恢复会员卡余额，此操作不可逆！
+          </div>
+        </template>
+      </el-alert>
+
+      <div class="void-info" v-if="voidDialog.transaction">
+        <div class="info-row">
+          <span class="label">交易时间：</span>
+          <span>{{ formatShortDateInAppTimeZone(voidDialog.transaction.transactionTime) }}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">会员：</span>
+          <span>{{ voidDialog.transaction.member?.name || voidDialog.transaction.customerName || '非会员用户' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">消费项目：</span>
+          <span>{{ formatServiceItems(voidDialog.transaction.items) || voidDialog.transaction.summary || '项目消费' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">消费金额：</span>
+          <span class="amount">¥{{ formatAmount(voidDialog.transaction.actualPaidAmount) }}</span>
+        </div>
+        <div class="info-row" v-if="voidDialog.transaction.paymentMethod === 'MEMBER_CARD'">
+          <span class="label">支付方式：</span>
+          <span style="color: #e6a23c;">会员卡支付（撤销后余额将恢复）</span>
+        </div>
+      </div>
+
+      <el-form :model="voidDialog" label-width="100px" style="margin-top: 20px;">
+        <el-form-item label="撤销原因" required>
+          <el-input
+            v-model="voidDialog.reason"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入撤销原因（必填）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="voidDialog.visible = false">取消</el-button>
+        <el-button
+          type="danger"
+          @click="confirmVoid"
+          :loading="voidDialog.loading"
+          :disabled="!voidDialog.reason?.trim()"
+        >
+          确认撤销
         </el-button>
       </template>
     </el-dialog>
@@ -500,10 +587,12 @@ import { useTransactionStore } from '@/stores/transaction';
 import { getMembers } from '@/api/member.js';
 import { getServiceList } from '@/api/service.js';
 import { getStaffList } from '@/api/staff.js';
-import { createTransaction, getTodayTransactions, createComboCheckout, createMultiCardTransaction } from '@/api/transaction.js';
-import { CreditCard, Plus, Minus, Edit } from '@element-plus/icons-vue';
+import { createTransaction, getTodayTransactions, createComboCheckout, createMultiCardTransaction, voidTransaction } from '@/api/transaction.js';
+import { getSystemConfig } from '@/api/config.js';
+import { useUserStore } from '@/stores/user';
+import { CreditCard, Plus, Minus, Edit, Delete } from '@element-plus/icons-vue';
 import Decimal from 'decimal.js';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 
 // 四舍五入到两位小数的工具函数
@@ -542,6 +631,16 @@ const transactionPagination = ref({
 const isLoadingMore = ref(false);
 const cardPaymentMode = ref('auto');
 const transactionStore = useTransactionStore();
+const userStore = useUserStore();
+
+// 撤销功能相关状态
+const systemConfig = ref({ enableTransactionVoid: false });
+const voidDialog = reactive({
+  visible: false,
+  loading: false,
+  transaction: null,
+  reason: ''
+});
 
 // 价格调整对话框状态
 const priceAdjustmentDialog = reactive({
@@ -578,7 +677,14 @@ const getInitialForm = () => ({
 });
 const form = reactive(getInitialForm());
 
-onMounted(() => {
+onMounted(async () => {
+  // 加载系统配置
+  try {
+    systemConfig.value = await getSystemConfig();
+  } catch (e) {
+    console.error('获取系统配置失败:', e);
+  }
+
   const appointmentData = transactionStore.consumeAppointmentToCheckout();
   if (appointmentData) {
     form.appointmentId = appointmentData.appointmentId;
@@ -683,11 +789,67 @@ const loadMoreTransactions = async () => {
 };
 
 // --- 计算属性 ---
-const commissionableStaff = computed(() => 
+const commissionableStaff = computed(() =>
   allStaff.value
     .filter(staff => staff.countsCommission)
     .sort((a, b) => a.sortOrder - b.sortOrder)
 );
+
+// 是否可以显示撤销按钮
+const canShowVoidButton = computed(() => {
+  return systemConfig.value?.enableTransactionVoid &&
+         ['ADMIN', 'MANAGER'].includes(userStore.userRole);
+});
+
+// 检查交易是否可撤销（7天内）
+const canVoidTransaction = (transaction) => {
+  if (!canShowVoidButton.value) return false;
+  const txTime = new Date(transaction.transactionTime);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  return txTime >= sevenDaysAgo;
+};
+
+// 打开撤销对话框
+const openVoidDialog = async (transaction) => {
+  try {
+    await ElMessageBox.confirm(
+      '交易撤销是高风险操作，撤销后将永久删除交易记录并恢复相关金额。此操作不可逆，请确认您已了解后果。',
+      '危险操作警告',
+      {
+        confirmButtonText: '我已了解，继续操作',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+        cancelButtonClass: 'el-button--primary',
+        customClass: 'void-confirm-dialog',
+      }
+    );
+    voidDialog.transaction = transaction;
+    voidDialog.reason = '';
+    voidDialog.visible = true;
+  } catch {
+    // 用户取消
+  }
+};
+
+// 确认撤销
+const confirmVoid = async () => {
+  if (!voidDialog.transaction) return;
+
+  voidDialog.loading = true;
+  try {
+    const result = await voidTransaction(voidDialog.transaction.id, voidDialog.reason || null);
+    ElMessage.success('交易撤销成功' + (result.balanceRestored?.length > 0 ? '，会员卡余额已恢复' : ''));
+    voidDialog.visible = false;
+    // 刷新交易列表
+    fetchTodayTransactions();
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '撤销失败');
+  } finally {
+    voidDialog.loading = false;
+  }
+};
 
 // 排序后的服务列表
 const sortedServiceList = computed(() => {
@@ -1708,5 +1870,57 @@ const getTimeTooltip = (row) => {
   font-weight: 500;
   display: inline-flex;
   align-items: center;
+}
+
+/* 撤销对话框样式 */
+.void-info {
+  background-color: #f5f7fa;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.void-info .info-row {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.void-info .info-row:last-child {
+  margin-bottom: 0;
+}
+
+.void-info .label {
+  color: #909399;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.void-info .amount {
+  font-weight: 600;
+  color: #f56c6c;
+}
+
+/* 撤销按钮样式 */
+.void-btn {
+  color: #f56c6c !important;
+  font-weight: 500;
+  border: 1px solid #f56c6c !important;
+  padding: 4px 10px !important;
+  border-radius: 4px;
+}
+
+.void-btn:hover {
+  color: #fff !important;
+  background-color: #f56c6c !important;
+}
+
+.void-btn-disabled {
+  color: #c0c4cc !important;
+  border-color: #e4e7ed !important;
+  cursor: not-allowed;
+}
+
+.void-btn-disabled:hover {
+  color: #c0c4cc !important;
+  background-color: transparent !important;
 }
 </style>

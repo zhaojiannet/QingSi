@@ -34,12 +34,20 @@
         <PasswordManager />
       </el-tab-pane>
 
-      <el-tab-pane 
-        label="通用设置" 
+      <el-tab-pane
+        label="通用设置"
         name="general"
         :class="{ 'is-hidden': !canAccessGeneralSettings }"
       >
         <ConfigManager />
+      </el-tab-pane>
+
+      <el-tab-pane
+        label="交易撤销"
+        name="voidLogs"
+        :class="{ 'is-hidden': !canAccessVoidLogs }"
+      >
+        <VoidLogManager />
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -53,6 +61,7 @@ import CardTypeManager from '@/components/settings/CardTypeManager.vue';
 import StaffManager from '@/components/settings/StaffManager.vue';
 import PasswordManager from '@/components/settings/PasswordManager.vue';
 import ConfigManager from '@/components/settings/ConfigManager.vue';
+import VoidLogManager from '@/components/settings/VoidLogManager.vue';
 
 const userStore = useUserStore();
 
@@ -61,6 +70,7 @@ const canAccessCardTypeManagement = computed(() => userStore.userRole === 'ADMIN
 // --- 核心修改：店长也可以管理员工 ---
 const canAccessStaffManagement = computed(() => ['ADMIN', 'MANAGER'].includes(userStore.userRole));
 const canAccessGeneralSettings = computed(() => userStore.userRole === 'ADMIN');
+const canAccessVoidLogs = computed(() => ['ADMIN', 'MANAGER'].includes(userStore.userRole));
 
 
 // 默认激活第一个Tab，逻辑大大简化
@@ -78,6 +88,7 @@ onMounted(async () => {
         staff: canAccessStaffManagement.value,
         account: true, // 账户设置总是可见
         general: canAccessGeneralSettings.value,
+        voidLogs: canAccessVoidLogs.value,
     };
 
     // 如果当前激活的Tab是不可见的
