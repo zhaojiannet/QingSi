@@ -27,7 +27,10 @@ import voidLogRoutes from './routes/voidLogs.js';
 import tokenCleaner from './utils/tokenCleaner.js';
 import { timezonePlugin } from './utils/timezone.js';
 
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({
+  logger: true,
+  trustProxy: true  // 信任反向代理的 X-Forwarded-* 头
+});
 
 // CORS配置 - 基于环境变量
 const corsOrigins = process.env.CORS_ORIGIN 
