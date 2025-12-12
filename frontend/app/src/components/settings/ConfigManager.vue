@@ -1,10 +1,10 @@
 <template>
   <div class="config-manager-container" v-loading="loading">
-    <el-form label-width="150px" style="max-width: 500px" class="no-wrap-labels">
+    <el-form label-width="150px" style="max-width: 600px" class="no-wrap-labels">
       <el-form-item label="开启登录验证码">
-        <el-switch 
+        <el-switch
           v-model="config.enableLoginCaptcha"
-          @change="handleConfigChange"
+          @change="() => handleConfigChange('enableLoginCaptcha')"
         />
       </el-form-item>
     </el-form>
@@ -19,6 +19,7 @@ import { ElMessage } from 'element-plus';
 const loading = ref(false);
 const config = ref({
   enableLoginCaptcha: true,
+  enableTransactionVoid: false,
 });
 
 onMounted(async () => {
@@ -30,15 +31,15 @@ onMounted(async () => {
   }
 });
 
-const handleConfigChange = async () => {
+const handleConfigChange = async (field) => {
+  const previousValue = !config.value[field];
   try {
     await updateSystemConfig({
-      enableLoginCaptcha: config.value.enableLoginCaptcha,
+      [field]: config.value[field],
     });
     ElMessage.success('配置更新成功');
   } catch {
-    // 如果失败，将开关恢复原状
-    config.value.enableLoginCaptcha = !config.value.enableLoginCaptcha;
+    config.value[field] = previousValue;
   }
 };
 </script>
@@ -50,5 +51,16 @@ const handleConfigChange = async () => {
 
 .no-wrap-labels :deep(.el-form-item__label) {
   white-space: nowrap;
+}
+
+.switch-with-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-hint {
+  color: #909399;
+  font-size: 12px;
 }
 </style>
