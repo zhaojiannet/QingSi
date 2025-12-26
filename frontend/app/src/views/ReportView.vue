@@ -34,16 +34,19 @@
       <!-- 营业概览 -->
       <el-tab-pane label="营业概览" name="business">
         <el-row :gutter="20" v-loading="businessReport.loading" class="stats-cards">
-          <el-col :span="6" :xs="12">
+          <el-col :span="5" :xs="12">
             <el-statistic title="总消费 (元)" :value="businessReport.data.totalRevenue" />
           </el-col>
-          <el-col :span="6" :xs="12">
+          <el-col :span="5" :xs="12">
             <el-statistic title="卡耗 (元)" :value="businessReport.data.cardConsumption" />
           </el-col>
-          <el-col :span="6" :xs="12">
+          <el-col :span="5" :xs="12">
+            <el-statistic title="充值 (元)" :value="businessReport.data.totalRecharge" />
+          </el-col>
+          <el-col :span="5" :xs="12">
             <el-statistic title="总客数" :value="businessReport.data.totalCustomers" />
           </el-col>
-          <el-col :span="6" :xs="12">
+          <el-col :span="4" :xs="12">
             <el-statistic title="客单价 (元)" :value="businessReport.data.averageOrderValue" />
           </el-col>
         </el-row>
@@ -709,7 +712,7 @@ const confirmVoid = async () => {
 // --- 报表数据状态 ---
 const businessReport = reactive({
   loading: false,
-  data: { totalRevenue: 0, cardConsumption: 0, totalCustomers: 0, averageOrderValue: 0 },
+  data: { totalRevenue: 0, cardConsumption: 0, totalRecharge: 0, totalCustomers: 0, averageOrderValue: 0 },
 });
 const transactionList = reactive({
   loading: false,

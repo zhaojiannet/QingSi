@@ -30,22 +30,33 @@ export default async function (fastify, opts) {
       },
     });
 
-    // 总消费：统计所有消费（包括挂账）
-    // 挂账的 actualPaidAmount 是负数，需要取绝对值才是真实消费金额
-    const totalConsumption = transactions.reduce(
-      (sum, t) => sum.plus(new Decimal(Math.abs(t.actualPaidAmount))), new Decimal(0)
-    );
+    // 判断是否为办卡/充值记录
+    const isCardPurchase = (t) => t.summary && t.summary.startsWith('办理【');
 
-    // 会员卡消费：只统计会员卡支付的实际消费
+    // 总消费：统计实际服务消费，排除办卡/充值记录（避免重复计算）
+    // 挂账的 actualPaidAmount 是负数，需要取绝对值才是真实消费金额
+    const totalConsumption = transactions
+      .filter(t => !isCardPurchase(t))
+      .reduce((sum, t) => sum.plus(new Decimal(Math.abs(t.actualPaidAmount))), new Decimal(0));
+
+    // 会员卡消费：只统计会员卡支付的实际消费（排除办卡记录）
     const cardConsumption = transactions
-      .filter(t => t.paymentMethod === 'MEMBER_CARD' && t.transactionType === 'NORMAL')
+      .filter(t => t.paymentMethod === 'MEMBER_CARD' && t.transactionType === 'NORMAL' && !isCardPurchase(t))
       .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0));
 
-    const totalCustomers = new Set(transactions.map(t => t.memberId || t.id)).size;
+    // 总客数：排除办卡记录
+    const consumptionTransactions = transactions.filter(t => !isCardPurchase(t));
+    const totalCustomers = new Set(consumptionTransactions.map(t => t.memberId || t.id)).size;
+
+    // 充值金额：统计办卡/充值记录
+    const totalRecharge = transactions
+      .filter(t => isCardPurchase(t))
+      .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0));
 
     return {
-      totalRevenue: totalConsumption.toFixed(2),  // 总消费（包括挂账）
-      cardConsumption: cardConsumption.toFixed(2),  // 会员卡消费
+      totalRevenue: totalConsumption.toFixed(2),  // 总消费（服务消费）
+      cardConsumption: cardConsumption.toFixed(2),  // 会员卡消费（卡耗）
+      totalRecharge: totalRecharge.toFixed(2),  // 充值金额
       totalCustomers,  // 总客数
       averageOrderValue: totalCustomers > 0 ? totalConsumption.div(totalCustomers).toFixed(2) : "0.00",  // 客单价
     };
