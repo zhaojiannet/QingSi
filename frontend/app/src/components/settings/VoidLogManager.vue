@@ -77,30 +77,31 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="原金额" width="100" align="right">
+      <el-table-column label="撤销金额" width="100" align="right">
         <template #default="{ row }">
-          <span class="amount">¥{{ row.actualPaidAmount }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="余额恢复" width="150">
-        <template #default="{ row }">
-          <div v-if="row.balanceRestored && row.balanceRestored.length > 0">
-            <div v-for="(item, index) in row.balanceRestored" :key="index" class="balance-item">
-              <template v-if="item.warning">
-                <el-text type="warning" size="small">{{ item.warning }}</el-text>
-              </template>
-              <template v-else-if="item.action === 'CARD_DELETED'">
-                <el-text type="danger" size="small">{{ item.message }}</el-text>
-              </template>
-              <template v-else-if="item.action === 'PENDING_RESTORED'">
-                <el-text type="success" size="small">{{ item.message }}</el-text>
-              </template>
-              <template v-else-if="item.amountRestored">
-                <span class="restored-amount">+¥{{ item.amountRestored }}</span>
-              </template>
-            </div>
-          </div>
-          <span v-else class="no-restore">-</span>
+          <!-- 新格式：包含交易前后余额 -->
+          <el-tooltip v-if="row.balanceSnapshot && row.balanceSnapshot.totalBalanceAfter !== undefined" placement="left">
+            <template #content>
+              <div class="snapshot-title">余额快照</div>
+              <div v-for="card in row.balanceSnapshot.cards" :key="card.cardId" class="card-balance-tip">
+                <span :class="{ 'used-card': card.isUsed }">{{ card.cardName }}: ¥{{ formatAmount(card.balanceBefore) }} → ¥{{ formatAmount(card.balanceAfter) }}</span>
+                <span v-if="card.isUsed" class="used-tag">✓</span>
+              </div>
+            </template>
+            <span class="amount has-snapshot">¥{{ row.actualPaidAmount }}</span>
+          </el-tooltip>
+          <!-- 旧格式兼容：只有交易后余额 -->
+          <el-tooltip v-else-if="row.balanceSnapshot && row.balanceSnapshot.totalBalance !== undefined" placement="left">
+            <template #content>
+              <div class="snapshot-title">余额快照</div>
+              <div v-for="card in row.balanceSnapshot.cards" :key="card.cardId" class="card-balance-tip">
+                <span :class="{ 'used-card': card.isUsed }">{{ card.cardName }}: ¥{{ formatAmount(card.balance) }}</span>
+                <span v-if="card.isUsed" class="used-tag">✓</span>
+              </div>
+            </template>
+            <span class="amount has-snapshot">¥{{ row.actualPaidAmount }}</span>
+          </el-tooltip>
+          <span v-else class="amount">¥{{ row.actualPaidAmount }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="voidedByName" label="操作人" width="100" />
@@ -169,6 +170,7 @@ import { ElMessage } from 'element-plus';
 import { getVoidLogs } from '@/api/voidLog.js';
 import { getSystemConfig, updateSystemConfig } from '@/api/config.js';
 import { formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
+import { formatAmount } from '@/utils/currency.js';
 
 const loading = ref(false);
 const configLoading = ref(false);
@@ -461,20 +463,6 @@ onUnmounted(() => {
   color: #f56c6c;
 }
 
-.balance-item {
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.restored-amount {
-  color: #67c23a;
-  font-weight: 500;
-}
-
-.no-restore {
-  color: #909399;
-}
-
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -483,5 +471,36 @@ onUnmounted(() => {
 
 .time-cell {
   cursor: help;
+}
+
+.has-snapshot {
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.snapshot-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.card-balance-tip {
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-balance-tip .used-card {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.card-balance-tip .used-tag {
+  color: #67c23a;
+  font-size: 10px;
 }
 </style>

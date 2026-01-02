@@ -93,6 +93,7 @@ model Transaction {
   customerName     String?
   isPending        Boolean           @default(false)
   transactionType  TransactionType   @default(NORMAL)
+  balanceSnapshot  Json?             // 记录交易前后的卡余额快照，格式: { totalBalanceBefore, totalBalanceAfter, cards: [{ cardId, cardName, balanceBefore, balanceAfter, isUsed }] }
   appointment      Appointment?
   cardUsed         Card?             @relation(fields: [cardId], references: [id])
   member           Member?           @relation(fields: [memberId], references: [id])
@@ -207,6 +208,7 @@ model VoidLog {
   paymentMethod    String
   cardInfo         String?  @db.Text
   balanceRestored  String?  @db.Text
+  balanceSnapshot  Json?    // 原始交易的余额快照，格式与 Transaction.balanceSnapshot 一致
   voidedAt         DateTime @default(now())
   voidedBy         String
   voidedByName     String

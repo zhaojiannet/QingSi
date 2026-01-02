@@ -157,12 +157,54 @@
             <el-table-column label="服务员工" width="90">
               <template #default="{ row }">{{ row.staff?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="金额" width="120" align="right">
+            <el-table-column label="金额" width="130" align="right">
               <template #default="{ row }">
-                <div style="line-height: 1.3;">
-                  <div style="color: #666; font-size: 12px;">应付：{{ formatCurrency(row.totalAmount) }}</div>
-                  <div>
-                    <span 
+                <div class="amount-cell">
+                  <div class="amount-row sub">应付：{{ formatCurrency(row.totalAmount) }}</div>
+                  <div class="amount-row">
+                    <!-- 新格式：包含交易前后余额 -->
+                    <el-tooltip v-if="row.balanceSnapshot && row.balanceSnapshot.totalBalanceAfter !== undefined" placement="left">
+                      <template #content>
+                        <div class="snapshot-title">余额快照</div>
+                        <div v-for="card in row.balanceSnapshot.cards" :key="card.cardId" class="card-balance-tip">
+                          <span :class="{ 'used-card': card.isUsed }">{{ card.cardName }}: ¥{{ formatAmount(card.balanceBefore) }} → ¥{{ formatAmount(card.balanceAfter) }}</span>
+                          <span v-if="card.isUsed" class="used-tag">✓</span>
+                        </div>
+                      </template>
+                      <span
+                        :class="{
+                          'paid-amount': true,
+                          'pending-amount': row.transactionType === 'PENDING',
+                          'clear-amount': row.transactionType === 'PENDING_CLEAR',
+                          'has-snapshot': true
+                        }"
+                      >
+                        实付：{{ formatCurrency(row.actualPaidAmount) }}
+                      </span>
+                    </el-tooltip>
+                    <!-- 旧格式兼容：只有交易后余额 -->
+                    <el-tooltip v-else-if="row.balanceSnapshot && row.balanceSnapshot.totalBalance !== undefined" placement="left">
+                      <template #content>
+                        <div class="snapshot-title">余额快照</div>
+                        <div v-for="card in row.balanceSnapshot.cards" :key="card.cardId" class="card-balance-tip">
+                          <span :class="{ 'used-card': card.isUsed }">{{ card.cardName }}: ¥{{ formatAmount(card.balance) }}</span>
+                          <span v-if="card.isUsed" class="used-tag">✓</span>
+                        </div>
+                      </template>
+                      <span
+                        :class="{
+                          'paid-amount': true,
+                          'pending-amount': row.transactionType === 'PENDING',
+                          'clear-amount': row.transactionType === 'PENDING_CLEAR',
+                          'has-snapshot': true
+                        }"
+                      >
+                        实付：{{ formatCurrency(row.actualPaidAmount) }}
+                      </span>
+                    </el-tooltip>
+                    <!-- 无余额快照 -->
+                    <span
+                      v-else
                       :class="{
                         'paid-amount': true,
                         'pending-amount': row.transactionType === 'PENDING',
@@ -605,7 +647,7 @@ import { useSystemStore } from '@/stores/system';
 import { useUserStore } from '@/stores/user';
 import { formatInAppTimeZone, formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
-import { formatCurrency } from '@/utils/currency.js';
+import { formatCurrency, formatAmount } from '@/utils/currency.js';
 
 use([
   CanvasRenderer,
@@ -1865,4 +1907,51 @@ const getTimeTooltip = (row) => {
   background-color: transparent !important;
 }
 
+/* 金额列样式 */
+.amount-cell {
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.amount-row {
+  white-space: nowrap;
+}
+
+.amount-row.sub {
+  color: #909399;
+  font-size: 12px;
+}
+
+/* 余额快照样式 */
+.has-snapshot {
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.snapshot-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.card-balance-tip {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.card-balance-tip .used-card {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.card-balance-tip .used-tag {
+  color: #67c23a;
+  margin-left: 4px;
+}
 </style>

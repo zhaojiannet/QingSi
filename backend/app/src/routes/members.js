@@ -5,6 +5,7 @@ import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import { schemas, createValidationHook, isValidId } from '../utils/validation.js';
 import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
+import { getMemberBalanceSnapshot } from '../utils/balance.js';
 
 export default async function (fastify, opts) {
   // 创建新会员 - 添加输入验证
@@ -481,6 +482,7 @@ export default async function (fastify, opts) {
       let paymentMethodToUse = paymentMethod;
       let clearSummary = `清账：${pendingTransaction.summary?.replace('挂账：', '') || ''}`;
       let clearNotes = `CLEAR_PENDING:${pendingId}`;
+      let balanceSnapshot = null;
 
       // 2. 如果选择会员卡支付，验证卡片和余额
       if (paymentMethod === 'MEMBER_CARD') {
@@ -508,22 +510,25 @@ export default async function (fastify, opts) {
         }
 
         // 3. 扣减会员卡余额
-        await tx.card.update({
+        const updatedCard = await tx.card.update({
           where: { id: cardId },
-          data: { 
-            balance: { 
-              decrement: pendingAmount 
-            } 
+          data: {
+            balance: {
+              decrement: pendingAmount
+            }
           }
         });
 
         // 生成卡片显示名称
-        const cardDisplayName = cardUsed.isCustomCard 
+        const cardDisplayName = cardUsed.isCustomCard
           ? `自定义面值卡(¥${new Decimal(cardUsed.customAmount).toFixed(2)})`
           : cardUsed.cardType.name;
 
         clearSummary = `清账（${cardDisplayName}支付）：${pendingTransaction.summary?.replace('挂账：', '') || ''}`;
         clearNotes = `CARD_CLEAR_PENDING:${pendingId}|CARD:${cardId}`;
+        // 记录会员所有卡的余额快照（包含交易前后余额）
+        const cardDeductions = { [cardId]: Number(pendingAmount) };
+        balanceSnapshot = await getMemberBalanceSnapshot(tx, id, [cardId], cardDeductions);
       }
 
       // 4. 设置原记录为已结清
@@ -546,6 +551,7 @@ export default async function (fastify, opts) {
           isPending: false,
           summary: clearSummary,
           notes: clearNotes,
+          balanceSnapshot: balanceSnapshot,
           transactionTime: new Date()
         }
       });
@@ -579,10 +585,11 @@ export default async function (fastify, opts) {
 
       // 计算总挂账金额
       const totalAmount = pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.totalAmount), 0);
-      
+
       let cardUsed = null;
       let paymentMethodToUse = paymentMethod;
       let clearNotesPrefix = 'CLEAR_ALL_PENDING';
+      let balanceSnapshot = null;
 
       // 2. 如果选择会员卡支付，验证卡片和余额
       if (paymentMethod === 'MEMBER_CARD') {
@@ -610,16 +617,19 @@ export default async function (fastify, opts) {
         }
 
         // 3. 扣减会员卡余额
-        await tx.card.update({
+        const updatedCard = await tx.card.update({
           where: { id: cardId },
-          data: { 
-            balance: { 
-              decrement: totalAmount 
-            } 
+          data: {
+            balance: {
+              decrement: totalAmount
+            }
           }
         });
 
         clearNotesPrefix = 'CARD_CLEAR_ALL_PENDING';
+        // 记录会员所有卡的余额快照（包含交易前后余额）
+        const cardDeductions = { [cardId]: Number(totalAmount) };
+        balanceSnapshot = await getMemberBalanceSnapshot(tx, id, [cardId], cardDeductions);
       }
 
       // 4. 设置所有挂账为已结清
@@ -680,6 +690,7 @@ export default async function (fastify, opts) {
           isPending: false,
           summary: summaryText,
           notes: clearNotes,
+          balanceSnapshot: balanceSnapshot,
           transactionTime: new Date()
         }
       });

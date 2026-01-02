@@ -3,11 +3,7 @@
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
-
-// 四舍五入到两位小数的工具函数
-const roundToTwoDecimals = (value) => {
-  return Math.round(value * 100) / 100;
-};
+import { getMemberBalanceSnapshot } from '../utils/balance.js';
 
 // 智能卡片支付处理函数
 async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
@@ -208,12 +204,20 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
       });
     }
 
+    // 获取使用的卡ID列表和扣款金额
+    const usedCardIds = paymentDetails.map(d => d.cardId);
+    const cardDeductions = {};
+    paymentDetails.forEach(d => {
+      cardDeductions[d.cardId] = d.actualPaid;  // 实际扣款金额
+    });
+    // 记录会员所有卡的余额快照（含交易前后）
+    const balanceSnapshot = await getMemberBalanceSnapshot(tx, memberId, usedCardIds, cardDeductions);
 
     // 计算多卡支付的实际折扣金额
     const totalDiscountGiven = paymentDetails.reduce((sum, detail) => {
       return sum.plus(new Decimal(detail.discountAmount || 0));
     }, new Decimal(0));
-    
+
     // 创建交易记录
     const newTransaction = await tx.transaction.create({
       data: {
@@ -226,6 +230,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         discountAmount: totalDiscountGiven.toNumber(),
         paymentMethod: 'MEMBER_CARD',
         cardId: null, // 多卡支付不关联单一卡片
+        balanceSnapshot: balanceSnapshot,
         notes: `${customTransactionTime ? '[手动设置时间] ' : ''}${notes ? notes + ' | ' : ''}多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
         transactionTime: customTransactionTime ? new Date(customTransactionTime) : new Date()
       }
@@ -392,13 +397,17 @@ export default async function (fastify, opts) {
       }
 
       const result = await prisma.$transaction(async (tx) => {
+        let balanceSnapshot = null;
+
         if (cardUsed) {
+          const deductionAmount = actualPaidAmount.toNumber();
           await tx.card.update({
             where: { id: cardId },
-            data: { balance: { decrement: actualPaidAmount.toNumber() } },
+            data: { balance: { decrement: deductionAmount } },
           });
+          // 记录会员所有卡的余额快照（含交易前后）
+          balanceSnapshot = await getMemberBalanceSnapshot(tx, memberId, [cardId], { [cardId]: deductionAmount });
         }
-        
 
         const newTransaction = await tx.transaction.create({
           data: {
@@ -409,6 +418,7 @@ export default async function (fastify, opts) {
             actualPaidAmount: actualPaidAmount.toNumber(),
             discountAmount: discountAmount.toNumber(),
             paymentMethod,
+            balanceSnapshot: balanceSnapshot,
             notes: (() => {
               let finalNotes = '';
               if (customTransactionTime) {
@@ -611,12 +621,22 @@ export default async function (fastify, opts) {
 
 
       const result = await prisma.$transaction(async (tx) => {
+        // 更新所有使用的卡余额
         for (const detail of paymentDetails) {
           await tx.card.update({
             where: { id: detail.cardId },
             data: { balance: { decrement: detail.deduction } },
           });
         }
+
+        // 获取使用的卡ID列表和扣款金额
+        const usedCardIds = paymentDetails.map(d => d.cardId);
+        const cardDeductions = {};
+        paymentDetails.forEach(d => {
+          cardDeductions[d.cardId] = d.deduction;
+        });
+        // 记录会员所有卡的余额快照（含交易前后）
+        const balanceSnapshot = await getMemberBalanceSnapshot(tx, memberId, usedCardIds, cardDeductions);
 
         // 计算正确的折扣金额
         let finalDiscountAmount;
@@ -639,6 +659,7 @@ export default async function (fastify, opts) {
                 actualPaidAmount: actualPaidTotal.toNumber(),
                 discountAmount: finalDiscountAmount.toNumber(),
                 paymentMethod: 'MEMBER_CARD',
+                balanceSnapshot: balanceSnapshot,
                 notes: (() => {
                   let finalNotes = '';
                   if (customTransactionTime) {
@@ -646,8 +667,8 @@ export default async function (fastify, opts) {
                   }
                   if (paymentDetails.length > 1) {
                     finalNotes += `多卡联合支付: ${paymentDetails.map(detail => {
-                      const card = userCards.find(c => c.id === detail.cardId);
-                      const cardName = card.isCustomCard 
+                      const card = memberCards.find(c => c.id === detail.cardId);
+                      const cardName = card.isCustomCard
                         ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
                         : card.cardType.name;
                       return `${cardName}¥${new Decimal(detail.deduction).toFixed(2)}`;
@@ -662,7 +683,7 @@ export default async function (fastify, opts) {
                 member: { connect: { id: memberId } },
                 staff: staffId ? { connect: { id: staffId } } : undefined,
                 appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
-                items: { 
+                items: {
                   create: Object.keys(serviceQuantities).map(serviceId => ({
                     id: generateId(),
                     serviceId: serviceId,
@@ -923,6 +944,7 @@ export default async function (fastify, opts) {
           transactionTime: true,
           transactionType: true,
           notes: true,
+          balanceSnapshot: true,
           member: { 
             select: { 
               name: true, 
@@ -1277,6 +1299,7 @@ export default async function (fastify, opts) {
           paymentMethod: transaction.paymentMethod,
           cardInfo: cardInfo,
           balanceRestored: JSON.stringify(balanceRestored),
+          balanceSnapshot: transaction.balanceSnapshot || null,
           voidedBy: userId,
           voidedByName: operatorName,
           reason: reason || null
