@@ -1,5 +1,5 @@
 # 使用一个现代、精简的 Node.js 基础镜像
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 # 设置 pnpm 的环境变量
 ENV PNPM_HOME="/pnpm"

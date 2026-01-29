@@ -100,10 +100,10 @@ fastify.register(fastifySession, {
 
 fastify.register(fastifyJwt, { secret: process.env.JWT_SECRET });
 
-// 全局速率限制 - 更保守的设置
-fastify.register(fastifyRateLimit, { 
+// 全局速率限制 - 合理化设置
+fastify.register(fastifyRateLimit, {
   global: true,
-  max: 50, // 降低到50次/分钟
+  max: 200, // 每分钟200次，满足正常页面浏览需求
   timeWindow: '1 minute',
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
@@ -171,17 +171,17 @@ const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRol
 const adminOnlyAccess = { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] };
 
 // --- 路由注册 (最终版RBAC权限) ---
-// 认证路由 - 更严格的速率限制
-fastify.register(authRoutes, { 
+// 认证路由 - 防暴力破解限制
+fastify.register(authRoutes, {
   prefix: '/api/auth',
-  config: { 
-    rateLimit: { 
-      max: 5, // 降低到5次/分钟
+  config: {
+    rateLimit: {
+      max: 10, // 每分钟10次，允许用户输错几次密码
       timeWindow: '1 minute',
       keyGenerator: (request) => {
         return request.ip; // 基于IP的限制
       }
-    } 
+    }
   }
 });
 
