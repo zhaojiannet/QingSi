@@ -2,3 +2,15 @@
 **/.pnpm-store/
 **/.DS_Store
 *.zip
+
+# Prisma 生成的客户端
+**/src/generated/
+
+# 环境配置
+.env
+**/.env
+!**/.env.example
+
+# Claude
+.claude/
+CLAUDE.md
