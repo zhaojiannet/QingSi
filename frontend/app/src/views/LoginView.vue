@@ -4,10 +4,10 @@
       <!-- 左侧宣传区域 -->
       <div class="login-promo">
         <div class="promo-content">
-          <img src="@/assets/images/qingsi_logo.png" alt="Logo" class="promo-logo" />
-          <h1 class="promo-title">青丝<br>美业综合管理系统</h1>
-          <p class="promo-description">智慧管理，从每一次服务开始。高效，精准，专业。</p>
-          <img src="@/assets/images/bg_image.png" alt="Promo illustration" class="promo-bg-illustration" />
+          <img :src="appConfig.logo" alt="Logo" class="promo-logo" />
+          <h1 class="promo-title">{{ appConfig.brandName }}<br>{{ appConfig.industryType }}{{ appConfig.systemName }}</h1>
+          <p class="promo-description">{{ appConfig.slogan }}</p>
+          <img :src="appConfig.loginBgImage" alt="Promo illustration" class="promo-bg-illustration" />
         </div>
       </div>
 
@@ -53,6 +53,7 @@ import { useUserStore } from '@/stores/user';
 import { User, Lock } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { getSystemConfig } from '@/api/config.js';
+import appConfig from '@/config/app.js';
 
 const loginConfig = reactive({
   showCaptcha: true,
@@ -169,16 +170,19 @@ const handleLogin = async () => {
   text-align: center;
 }
 .promo-description {
-  font-size: 16px;
+  font-size: 14px;
   opacity: 0.8;
   line-height: 1.6;
   text-align: center;
+  white-space: nowrap;
 }
 .promo-bg-illustration {
     position: absolute;
-    bottom: 0;
+    top: 0;
     left: 0;
     width: 100%;
+    height: 100%;
+    object-fit: cover;
     opacity: 0.1;
     pointer-events: none;
 }

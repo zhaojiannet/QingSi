@@ -5,8 +5,8 @@
       <div class="header-content">
         <!-- Logo容器 -->
         <div class="logo-container">
-          <img src="@/assets/images/qingsi_logo.png" alt="Logo" class="logo-img" />
-          <span class="logo-text">青丝 · 美业综合管理系统</span>
+          <img :src="appConfig.logo" alt="Logo" class="logo-img" />
+          <span class="logo-text">{{ appConfig.fullTitle }}</span>
         </div>
         
         <!-- PC端导航 -->
@@ -151,6 +151,7 @@ import { useSystemStore } from '@/stores/system';
 import { useUIStore } from '@/stores/ui';
 import { useRoute } from 'vue-router';
 import { User, UserFilled, ArrowDown, Money, Scissor, PieChart, Operation } from '@element-plus/icons-vue';
+import appConfig from '@/config/app.js';
 
 const userStore = useUserStore();
 const systemStore = useSystemStore();
@@ -166,6 +167,7 @@ const fetchAllReminders = () => {
 };
 
 onMounted(() => {
+  document.title = appConfig.fullTitle;
   if (userStore.isLoggedIn) {
     fetchAllReminders();
   }
@@ -447,5 +449,18 @@ body .el-tag {
 }
 .el-message-box.void-confirm-dialog .el-message-box__btns .el-button {
   margin: 0 !important;
+}
+
+/* 响应式弹窗 - 移动端自适应宽度 */
+@media (max-width: 768px) {
+  .el-dialog {
+    --el-dialog-width: calc(100vw - 40px) !important;
+    width: calc(100vw - 40px) !important;
+    max-width: calc(100vw - 40px) !important;
+    margin: 20px auto !important;
+  }
+  .el-dialog__body {
+    padding: 15px !important;
+  }
 }
 </style>
