@@ -14,9 +14,9 @@
           <span v-else>{{ row.sortOrder }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="无折扣" width="100" align="center">
+      <el-table-column label="无折扣" width="120" align="center">
         <template #default="{ row }">
-          <el-tag v-if="row.noDiscount" type="danger" size="small">
+          <el-tag v-if="row.noDiscount" type="danger" size="small" class="no-discount-tag">
             <el-icon><Warning /></el-icon> 是
           </el-tag>
           <span v-else class="text-muted">否</span>
@@ -225,6 +225,27 @@ const handleDelete = async (id) => {
 
 .no-discount-label strong {
   font-weight: 600;
+}
+
+:deep(.no-discount-tag) {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  white-space: nowrap !important;
+  width: auto !important;
+  max-width: none !important;
+}
+
+:deep(.no-discount-tag .el-tag__content) {
+  display: inline-flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  width: auto !important;
+}
+
+:deep(.no-discount-tag .el-icon) {
+  margin-right: 2px;
+  flex-shrink: 0;
 }
 
 .text-muted {

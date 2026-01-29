@@ -15,6 +15,7 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            popper-class="report-date-popper"
             @change="handleDateChange"
           />
         </el-form-item>
@@ -75,17 +76,33 @@
                 </el-input>
               </el-form-item>
             </el-form>
+            <el-popover placement="bottom-end" :width="140" trigger="click">
+              <template #reference>
+                <span class="column-filter-trigger">
+                  <el-icon><Operation /></el-icon>
+                </span>
+              </template>
+              <div class="column-filter">
+                <div class="column-filter-title">显示列</div>
+                <el-checkbox-group v-model="visibleColumns">
+                  <el-checkbox v-for="col in columnOptions" :key="col.value" :value="col.value">
+                    {{ col.label }}
+                  </el-checkbox>
+                </el-checkbox-group>
+              </div>
+            </el-popover>
           </div>
           <div class="transaction-table-container">
-            <el-table 
-              :data="filteredTransactions" 
-              v-loading="transactionList.loading" 
+            <el-table
+              :data="filteredTransactions"
+              v-loading="transactionList.loading"
               stripe
               ref="transactionTableRef"
               style="width: 100%"
               :row-key="row => row.id"
+              :class="{ 'auto-width': visibleColumns.length > 0 }"
             >
-            <el-table-column label="姓名" width="110">
+            <el-table-column label="姓名" width="90">
               <template #default="{ row }">
                 <el-tooltip 
                   v-if="row.member && row.member.phone" 
@@ -97,7 +114,7 @@
                 <span v-else>{{ row.member?.name || row.customerName || '非会员用户' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="会员卡" width="200">
+            <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="130">
               <template #default="{ row }">
                 <!-- 多卡支付显示所有卡片 -->
                 <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
@@ -112,7 +129,7 @@
                 <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column label="服务项目" min-width="220">
+            <el-table-column label="服务项目" class-name="auto-width-column">
               <template #default="{ row }">
                 <el-tooltip 
                   v-if="row.transactionType === 'PENDING'"
@@ -146,7 +163,7 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="55" align="center">
+            <el-table-column v-if="visibleColumns.includes('quantity')" label="数量" width="60" align="center">
               <template #default="{ row }">
                 <span v-if="row.items && row.items.length > 0">
                   {{ row.items.reduce((sum, item) => sum + (item.quantity || 1), 0) }}
@@ -154,10 +171,10 @@
                 <span v-else>1</span>
               </template>
             </el-table-column>
-            <el-table-column label="服务员工" width="90">
+            <el-table-column v-if="visibleColumns.includes('staff')" label="服务员工" width="90">
               <template #default="{ row }">{{ row.staff?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="金额" width="130" align="right">
+            <el-table-column label="金额" width="115" align="center">
               <template #default="{ row }">
                 <div class="amount-cell">
                   <div class="amount-row sub">应付：{{ formatCurrency(row.totalAmount) }}</div>
@@ -217,50 +234,45 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="折扣" width="160" align="left">
+            <el-table-column v-if="visibleColumns.includes('discount')" label="折扣" width="90">
               <template #default="{ row }">
-                <div>
+                <div class="discount-cell">
                   <!-- 价格调整信息（优先显示） -->
-                  <div v-if="row.manualAdjustment">
-                    <el-tag type="warning" size="small">{{ getAdjustmentText(row) }}</el-tag>
+                  <div v-if="row.manualAdjustment" class="discount-info">
+                    <span class="discount-rate warning">{{ getAdjustmentText(row) }}</span>
                     <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
                       {{ getAdjustmentReason(row) }}
                     </div>
                   </div>
-                  
+
                   <!-- 多卡支付信息（与价格调整不互斥） -->
-                  <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-payment" :class="{ 'mt-2': row.manualAdjustment }">
-                    <el-tag type="warning" size="small" class="multi-card-tag">
-                      <el-icon><CreditCard /></el-icon>
-                      多卡 {{ getAverageDiscountDisplay(row) }}折 {{ formatCurrency(row.discountAmount) }}
-                    </el-tag>
+                  <div v-if="row.member && isMultiCardPayment(row)" class="discount-info" :class="{ 'mt-2': row.manualAdjustment }">
+                    <span class="discount-rate">多卡 {{ getAverageDiscountDisplay(row) }}折</span>
+                    <span class="discount-save">省 {{ formatCurrency(row.discountAmount) }}</span>
                     <div class="multi-card-details">
                       {{ getMultiCardDetails(row) }}
                     </div>
                   </div>
-                  
+
                   <!-- 单卡支付（只在非多卡且非价格调整时显示） -->
-                  <div v-else-if="row.member && parseFloat(row.discountAmount) > 0 && !row.manualAdjustment && !isMultiCardPayment(row)">
+                  <div v-else-if="row.member && parseFloat(row.discountAmount) > 0 && !row.manualAdjustment && !isMultiCardPayment(row)" class="discount-info">
                     <!-- 单卡支付：有cardUsed信息 -->
-                    <div v-if="row.cardUsed">
-                      <el-tag type="primary" size="small">
-                        {{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折 {{ formatCurrency(row.discountAmount) }}
-                      </el-tag>
-                    </div>
+                    <template v-if="row.cardUsed">
+                      <span class="discount-rate">{{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折</span>
+                      <span class="discount-save">省 {{ formatCurrency(row.discountAmount) }}</span>
+                    </template>
                     <!-- 单卡支付：通过智能接口但没有cardUsed信息 -->
-                    <div v-else>
-                      <el-tag type="primary" size="small">
-                        {{ getSingleCardDiscountDisplay(row) }}
-                      </el-tag>
-                    </div>
+                    <template v-else>
+                      <span class="discount-rate">{{ getSingleCardDiscountDisplay(row) }}</span>
+                    </template>
                   </div>
-                  
+
                   <!-- 无折扣信息时显示 -->
-                  <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !isMultiCardPayment(row)">-</span>
+                  <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !isMultiCardPayment(row)" class="no-discount">-</span>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="transactionTime" label="时间" width="150" align="center">
+            <el-table-column v-if="visibleColumns.includes('time')" prop="transactionTime" label="时间" width="110" align="center">
               <template #default="{ row }">
                 <el-tooltip
                   :content="getTimeTooltip(row)"
@@ -638,7 +650,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
-import { Search, CreditCard, Edit } from '@element-plus/icons-vue';
+import { Search, CreditCard, Edit, Operation } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { getBusinessReport, getServiceRanking, getSleepingMembers, getMemberRanking, getBirthdayReminders, getPaymentSummary, getCardSalesSummary, getPendingStats } from '@/api/report.js';
 import { getTransactionsByDateRange, voidTransaction } from '@/api/transaction.js';
@@ -686,6 +698,23 @@ const voidDialog = reactive({
   transaction: null,
   reason: ''
 });
+
+// 列筛选状态
+const columnOptions = [
+  { label: '会员卡', value: 'card' },
+  { label: '数量', value: 'quantity' },
+  { label: '服务员工', value: 'staff' },
+  { label: '折扣', value: 'discount' },
+  { label: '时间', value: 'time' }
+];
+// 根据屏幕宽度设置默认显示的列
+const getDefaultColumns = () => {
+  const width = window.innerWidth;
+  if (width <= 480) return []; // 手机端：只显示必要列
+  if (width <= 768) return ['card', 'discount']; // 平板端：隐藏数量、员工和时间
+  return ['card', 'quantity', 'staff', 'discount', 'time']; // 桌面端：全部显示
+};
+const visibleColumns = ref(getDefaultColumns());
 
 // 需要时间筛选的报表Tab
 const dateFilterTabs = ['business', 'paymentSummary', 'cardSalesSummary', 'serviceRanking', 'memberRanking'];
@@ -1086,20 +1115,24 @@ const loadMore = async () => {
 // 获取调整差额文本
 const getAdjustmentText = (row) => {
   if (!row.manualAdjustment) return '';
-  
+
   const totalAmount = parseFloat(row.totalAmount);
   const adjustedAmount = parseFloat(row.actualPaidAmount);
   const difference = adjustedAmount - totalAmount;
-  
-  if (difference > 0) return `+¥ ${difference.toFixed(2)}`;
-  if (difference < 0) return `¥ ${difference.toFixed(2)}`;
+
+  // 应付为0时，显示"定价"
+  if (totalAmount === 0) return `定价 ¥${adjustedAmount.toFixed(2)}`;
+  // 加价
+  if (difference > 0) return `加 ¥${difference.toFixed(2)}`;
+  // 减价
+  if (difference < 0) return `减 ¥${Math.abs(difference).toFixed(2)}`;
   return '价格调整';
 };
 
 // 获取调整原因
 const getAdjustmentReason = (row) => {
   if (!row.manualAdjustment || !row.notes) return '';
-  
+
   const match = row.notes.match(/价格调整：(.+?)(?:\s*\||$)/);
   return match ? match[1].trim() : '';
 };
@@ -1468,6 +1501,9 @@ const reloadCurrentTabData = () => {
 };
 
 onMounted(async () => {
+  // 根据屏幕宽度设置默认显示的列
+  visibleColumns.value = getDefaultColumns();
+
   // 加载系统配置
   try {
     systemConfig.value = await getSystemConfig();
@@ -1601,6 +1637,7 @@ const getTimeTooltip = (row) => {
   }
   return fullTime;
 };
+
 </script>
 
 <style scoped>
@@ -1615,6 +1652,56 @@ const getTimeTooltip = (row) => {
 }
 .report-tabs { flex-grow: 1; display: flex; flex-direction: column; }
 .report-tabs :deep(.el-tabs__content) { flex-grow: 1; overflow-y: auto; padding-top: 20px;}
+.report-tabs :deep(th .cell) { white-space: nowrap; }
+.report-tabs :deep(td .cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 表格自动宽度布局 - 仅在筛选显示更多列时启用 */
+.report-tabs :deep(.auto-width table) {
+  table-layout: auto !important;
+}
+.report-tabs :deep(.auto-width .auto-width-column .cell) {
+  white-space: nowrap;
+}
+
+/* 消费记录表格样式 */
+.transaction-table-container {
+  width: 100%;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.transaction-table-container :deep(thead) {
+  color: #606266;
+  font-weight: 500;
+}
+.transaction-table-container :deep(th) {
+  background-color: #fafafa !important;
+}
+.transaction-table-container :deep(th .cell) {
+  white-space: nowrap;
+}
+.transaction-table-container :deep(td .cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transaction-table-container :deep(.el-table__cell) {
+  border: none;
+}
+.transaction-table-container :deep(.el-table::before) {
+  display: none;
+}
+/* 表格自动宽度布局 */
+.transaction-table-container :deep(.auto-width table) {
+  table-layout: auto !important;
+}
+.transaction-table-container :deep(.auto-width .auto-width-column .cell) {
+  white-space: nowrap;
+}
+
 .stats-cards { padding: 20px; background-color: #fafafa; border-radius: 6px; }
 .el-statistic { text-align: center; }
 .tip { color: #909399; font-size: 14px; margin-bottom: 15px; }
@@ -1628,16 +1715,102 @@ const getTimeTooltip = (row) => {
   align-items: center;
   margin-bottom: 0;
 }
+
+/* 移动端日期筛选区域响应式 */
+@media (max-width: 768px) {
+  .global-filter-container {
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+  .date-filter-form {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+  .date-filter-form :deep(.el-form-item) {
+    width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: 0 !important;
+  }
+  .date-filter-form :deep(.el-form-item__label) {
+    display: none !important;
+  }
+  .date-filter-form :deep(.el-form-item__content) {
+    width: 100% !important;
+    flex: none !important;
+  }
+  .date-filter-form :deep(.el-date-editor.el-input__wrapper) {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .date-filter-form :deep(.el-range-editor.el-input__wrapper) {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .date-filter-form :deep(.el-radio-group) {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+  }
+  .date-filter-form :deep(.el-radio-button) {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+  .date-filter-form :deep(.el-radio-button__inner) {
+    width: 100% !important;
+    padding: 8px 4px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
+
+  /* 消费记录表格移动端样式 */
+  .transaction-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .transaction-table-container :deep(.el-table__cell) {
+    padding: 8px 6px;
+    font-size: 13px;
+  }
+  .transaction-table-container :deep(.el-tag) {
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  /* 消费记录头部移动端样式 */
+  .transaction-header {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+  .transaction-header .section-title {
+    font-size: 16px;
+    min-width: unset;
+    flex: 1;
+    order: 1;
+  }
+  .transaction-header .member-filter-form {
+    order: 3;
+    width: 100%;
+  }
+  .transaction-header .member-filter-form :deep(.el-input) {
+    width: 100% !important;
+  }
+  .transaction-header .column-filter-trigger {
+    order: 2;
+    flex-shrink: 0;
+  }
+}
 .transaction-list-container {
     margin-top: 30px;
 }
 .transaction-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     margin-bottom: 20px;
-    gap: 20px;
-    flex-wrap: wrap;
+    gap: 15px;
+    flex-wrap: nowrap;
     padding-bottom: 15px;
     border-bottom: 1px solid #e4e7ed;
 }
@@ -1687,14 +1860,15 @@ const getTimeTooltip = (row) => {
   min-width: 300px;
 }
 
-.paid-amount { 
-  font-weight: 500; 
-  color: #E6A23C; 
+.paid-amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
 }
 
 .adjustment-reason {
   font-size: 11px;
-  color: #666;
+  color: #909399;
   margin-top: 2px;
   line-height: 1.2;
 }
@@ -1754,15 +1928,10 @@ const getTimeTooltip = (row) => {
 }
 
 .card-tag {
-  max-width: 100%;
-  word-wrap: break-word;
-  word-break: break-all;
-  white-space: normal;
-  line-height: 1.2;
-  height: auto;
-  padding: 2px 6px;
-  display: inline-block;
-  overflow: visible;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
 }
 
 /* 挂账统计样式 */
@@ -1909,17 +2078,51 @@ const getTimeTooltip = (row) => {
 
 /* 金额列样式 */
 .amount-cell {
-  line-height: 1.4;
+  line-height: 1.6;
   white-space: nowrap;
 }
 
 .amount-row {
   white-space: nowrap;
+  font-size: 13px;
 }
 
 .amount-row.sub {
-  color: #909399;
-  font-size: 12px;
+  color: #a8abb2;
+  font-size: 13px;
+  text-decoration: line-through;
+  text-decoration-color: #c0c4cc;
+}
+
+/* 折扣列样式 */
+.discount-cell {
+  line-height: 1.5;
+}
+
+.discount-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.discount-rate {
+  font-size: 13px;
+  color: #606266;
+}
+
+.discount-rate.warning {
+  color: #e6a23c;
+  font-weight: 500;
+}
+
+.discount-save {
+  font-size: 13px;
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.no-discount {
+  color: #c0c4cc;
 }
 
 /* 余额快照样式 */
@@ -1953,5 +2156,157 @@ const getTimeTooltip = (row) => {
 .card-balance-tip .used-tag {
   color: #67c23a;
   margin-left: 4px;
+}
+
+/* 列筛选器样式 */
+.column-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: #909399;
+  cursor: pointer;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background-color: #fff;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.column-filter-trigger:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  background-color: var(--el-color-primary-light-9);
+}
+
+.column-filter-trigger .el-icon {
+  font-size: 14px;
+}
+
+.column-filter-title {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.column-filter .el-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.column-filter .el-checkbox {
+  margin-right: 0;
+  height: auto;
+}
+</style>
+
+<style>
+/* 移动端日期范围选择器弹窗样式 - 必须是非scoped因为弹窗渲染在body */
+@media (max-width: 768px) {
+  .report-date-popper.el-popper {
+    width: calc(100vw - 60px) !important;
+    max-width: calc(100vw - 60px) !important;
+    left: 30px !important;
+    right: 30px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+    overflow: hidden !important;
+    border: none !important;
+  }
+  .report-date-popper .el-picker-panel.el-date-range-picker {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .report-date-popper .el-picker-panel__body-wrapper {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+  .report-date-popper .el-picker-panel__body {
+    width: 100% !important;
+  }
+  .report-date-popper .el-date-range-picker__content {
+    display: block !important;
+    width: 100% !important;
+    padding: 12px 8px !important;
+    box-sizing: border-box !important;
+  }
+  .report-date-popper .el-date-range-picker__content.is-left {
+    border-right: none !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    padding-bottom: 16px !important;
+  }
+  .report-date-popper .el-date-range-picker__content.is-right {
+    padding-top: 12px !important;
+  }
+  /* 头部月份导航 */
+  .report-date-popper .el-date-range-picker__header {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 4px 0 12px !important;
+    gap: 8px !important;
+  }
+  .report-date-popper .el-date-range-picker__header button {
+    padding: 6px 10px !important;
+    border-radius: 8px !important;
+    background: #f5f7fa !important;
+    border: none !important;
+  }
+  .report-date-popper .el-date-range-picker__header div {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: #303133 !important;
+  }
+  /* 日期表格容器 - 使用缩放适配屏幕 */
+  .report-date-popper .el-picker-panel__content {
+    transform: scale(0.72) !important;
+    transform-origin: top left !important;
+    margin-right: -28% !important;
+    margin-bottom: -80px !important;
+  }
+  /* 日历表格 */
+  .report-date-popper .el-date-table {
+    width: 100% !important;
+  }
+  .report-date-popper .el-date-table th {
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: #909399 !important;
+    padding: 8px 0 !important;
+  }
+  .report-date-popper .el-date-table td {
+    padding: 3px 0 !important;
+  }
+  .report-date-popper .el-date-table-cell {
+    height: 40px !important;
+  }
+  .report-date-popper .el-date-table-cell__text {
+    width: 36px !important;
+    height: 36px !important;
+    line-height: 36px !important;
+    font-size: 15px !important;
+    border-radius: 50% !important;
+  }
+  /* 选中和范围样式 */
+  .report-date-popper .el-date-table td.in-range .el-date-table-cell {
+    background-color: #e6f4ff !important;
+  }
+  .report-date-popper .el-date-table td.start-date .el-date-table-cell__text,
+  .report-date-popper .el-date-table td.end-date .el-date-table-cell__text {
+    background-color: #409eff !important;
+    color: #fff !important;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.4) !important;
+  }
+  .report-date-popper .el-date-table td.today .el-date-table-cell__text {
+    color: #409eff !important;
+    font-weight: 700 !important;
+    border: 2px solid #409eff !important;
+    line-height: 32px !important;
+  }
 }
 </style>

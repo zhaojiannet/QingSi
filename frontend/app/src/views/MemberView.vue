@@ -15,7 +15,7 @@
     placeholder="输入会员姓名或手机号进行搜索"
     clearable
     size="large"
-    style="width: 360px;"
+    class="search-input"
     @input="handleSearchDebounced"
   >
     <template #prefix>
@@ -352,5 +352,23 @@ const getCardStats = (member) => {
 .no-pending {
   color: #C0C4CC;
   font-style: italic;
+}
+
+/* 搜索框响应式 */
+.search-input {
+  width: 360px;
+}
+@media (max-width: 768px) {
+  .search-input {
+    width: 100%;
+  }
+  .filter-container {
+    padding: 10px 15px;
+  }
+  .filter-container :deep(.el-form-item) {
+    margin-right: 0;
+    margin-bottom: 0;
+    width: 100%;
+  }
 }
 </style>

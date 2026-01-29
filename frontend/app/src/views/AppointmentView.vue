@@ -16,6 +16,7 @@
             start-placeholder="开始日期"
             end-placeholder="结束日期"
             value-format="YYYY-MM-DD"
+            popper-class="appointment-date-popper"
             @change="fetchAppointments"
           />
         </el-form-item>
@@ -230,5 +231,151 @@ const goToCheckout = (appointment) => {
   display: flex;
   align-items: center;
   margin-bottom: 0;
+}
+
+@media (max-width: 768px) {
+  .filter-container {
+    padding: 10px 15px;
+    overflow: hidden;
+  }
+  .date-filter-form {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+  .date-filter-form :deep(.el-form-item) {
+    width: 100% !important;
+    margin-right: 0 !important;
+  }
+  .date-filter-form :deep(.el-date-editor) {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .date-filter-form :deep(.el-radio-group) {
+    width: 100%;
+    display: flex;
+  }
+  .date-filter-form :deep(.el-radio-button) {
+    flex: 1;
+  }
+  .date-filter-form :deep(.el-radio-button__inner) {
+    width: 100%;
+  }
+}
+</style>
+
+<style>
+/* 移动端日期范围选择器弹窗样式 - 必须是非scoped因为弹窗渲染在body */
+@media (max-width: 768px) {
+  .appointment-date-popper.el-popper {
+    width: calc(100vw - 60px) !important;
+    max-width: calc(100vw - 60px) !important;
+    left: 30px !important;
+    right: 30px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+    overflow: hidden !important;
+    border: none !important;
+  }
+  .appointment-date-popper .el-picker-panel.el-date-range-picker {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .appointment-date-popper .el-picker-panel__body-wrapper {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+  .appointment-date-popper .el-picker-panel__body {
+    width: 100% !important;
+  }
+  .appointment-date-popper .el-date-range-picker__content {
+    display: block !important;
+    width: 100% !important;
+    padding: 12px 8px !important;
+    box-sizing: border-box !important;
+  }
+  .appointment-date-popper .el-date-range-picker__content.is-left {
+    border-right: none !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    padding-bottom: 16px !important;
+  }
+  .appointment-date-popper .el-date-range-picker__content.is-right {
+    padding-top: 12px !important;
+  }
+  /* 头部月份导航 */
+  .appointment-date-popper .el-date-range-picker__header {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 4px 0 12px !important;
+    gap: 8px !important;
+  }
+  .appointment-date-popper .el-date-range-picker__header button {
+    padding: 6px 10px !important;
+    border-radius: 8px !important;
+    background: #f5f7fa !important;
+    border: none !important;
+    transition: background 0.2s !important;
+  }
+  .appointment-date-popper .el-date-range-picker__header button:active {
+    background: #e4e7ed !important;
+  }
+  .appointment-date-popper .el-date-range-picker__header div {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: #303133 !important;
+  }
+  /* 日期表格容器 - 使用缩放适配屏幕 */
+  .appointment-date-popper .el-picker-panel__content {
+    transform: scale(0.72) !important;
+    transform-origin: top left !important;
+    margin-right: -28% !important;
+    margin-bottom: -80px !important;
+  }
+  /* 日历表格 */
+  .appointment-date-popper .el-date-table {
+    width: 100% !important;
+  }
+  .appointment-date-popper .el-date-table th {
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: #909399 !important;
+    padding: 8px 0 !important;
+  }
+  .appointment-date-popper .el-date-table td {
+    padding: 3px 0 !important;
+  }
+  .appointment-date-popper .el-date-table-cell {
+    height: 40px !important;
+  }
+  .appointment-date-popper .el-date-table-cell__text {
+    width: 36px !important;
+    height: 36px !important;
+    line-height: 36px !important;
+    font-size: 15px !important;
+    border-radius: 50% !important;
+    transition: background 0.2s !important;
+  }
+  /* 选中和范围样式 */
+  .appointment-date-popper .el-date-table td.in-range .el-date-table-cell {
+    background-color: #e6f4ff !important;
+  }
+  .appointment-date-popper .el-date-table td.start-date .el-date-table-cell__text,
+  .appointment-date-popper .el-date-table td.end-date .el-date-table-cell__text {
+    background-color: #409eff !important;
+    color: #fff !important;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.4) !important;
+  }
+  .appointment-date-popper .el-date-table td.today .el-date-table-cell__text {
+    color: #409eff !important;
+    font-weight: 700 !important;
+    border: 2px solid #409eff !important;
+    line-height: 32px !important;
+  }
+  /* 禁用日期样式 */
+  .appointment-date-popper .el-date-table td.disabled .el-date-table-cell__text {
+    color: #c0c4cc !important;
+  }
 }
 </style>
