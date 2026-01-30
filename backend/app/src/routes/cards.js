@@ -3,8 +3,12 @@
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
+import { isValidId } from '../utils/validation.js';
 
 export default async function (fastify, opts) {
+  // 管理员和经理权限
+  const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
+
   fastify.post('/issue-with-transaction', async (request, reply) => {
       const { 
         memberId, 
@@ -20,6 +24,14 @@ export default async function (fastify, opts) {
 
       if (!memberId || !cardTypeId) {
         return reply.code(400).send({ message: '会员和卡类型均为必填项。' });
+      }
+
+      // 验证 ID 格式
+      if (!isValidId(memberId) || !isValidId(cardTypeId)) {
+        return reply.code(400).send({ message: '无效的ID格式' });
+      }
+      if (staffId && !isValidId(staffId)) {
+        return reply.code(400).send({ message: '无效的员工ID格式' });
       }
       
       // 自定义面值卡的额外验证
@@ -87,10 +99,15 @@ export default async function (fastify, opts) {
       return result;
   });
 
-  // 删除会员卡接口
-  fastify.delete('/:cardId', async (request, reply) => {
+  // 删除会员卡接口 - 需要管理员或经理权限
+  fastify.delete('/:cardId', managerAndAdminAccess, async (request, reply) => {
     const { cardId } = request.params;
-    
+
+    // 验证 ID 格式
+    if (!isValidId(cardId)) {
+      return reply.code(400).send({ message: '无效的会员卡ID格式' });
+    }
+
     try {
       // 检查会员卡是否存在
       const card = await prisma.card.findUnique({

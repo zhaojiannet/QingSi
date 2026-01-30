@@ -9,7 +9,7 @@ services:
       - no-cache:/app/.pnpm-store
     ports:
       - "3000:3000"
-      - "5555:5555"
+      # Prisma Studio 端口已移除，避免数据库管理界面暴露
     env_file:
       - ./backend/app/.env
     restart: unless-stopped

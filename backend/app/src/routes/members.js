@@ -8,6 +8,9 @@ import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
 import { getMemberBalanceSnapshot } from '../utils/balance.js';
 
 export default async function (fastify, opts) {
+  // 管理员和经理权限
+  const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
+
   // 创建新会员 - 添加输入验证
   fastify.post('/', {
     preValidation: createValidationHook(schemas.member.create)
@@ -48,12 +51,13 @@ export default async function (fastify, opts) {
   // 获取会员列表 - 添加缓存
   fastify.get('/', async (request, reply) => {
     const { page = 1, limit = 10, search = '', includeCards = 'false' } = request.query;
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const skip = (pageNum - 1) * limitNum;
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+    const validPageNum = Math.max(pageNum, 1);
+    const skip = (validPageNum - 1) * limitNum;
     
     // 尝试从缓存获取
-    const cacheKey = cacheKeys.memberList(pageNum, limitNum, search);
+    const cacheKey = cacheKeys.memberList(validPageNum, limitNum, search);
     const cached = cache.get(cacheKey);
     if (cached && includeCards === 'false') {
       return cached;
@@ -187,7 +191,7 @@ export default async function (fastify, opts) {
       reply.send({
         data: members,
         total,
-        page: pageNum,
+        page: validPageNum,
         limit: limitNum,
       });
 
@@ -255,9 +259,14 @@ export default async function (fastify, opts) {
 
 
 
-  // --- 逻辑删除 (常规操作) ---
-  fastify.delete('/:id', async (request, reply) => {
+  // --- 逻辑删除 (常规操作) - 需要管理员或经理权限 ---
+  fastify.delete('/:id', managerAndAdminAccess, async (request, reply) => {
     const { id } = request.params;
+
+    // 验证 ID 格式
+    if (!isValidId(id)) {
+      return reply.code(400).send({ message: '无效的会员ID格式' });
+    }
     
     const activeCards = await prisma.card.findMany({
       where: { memberId: id, status: 'ACTIVE', balance: { gt: 0 } }

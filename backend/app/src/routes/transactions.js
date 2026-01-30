@@ -4,6 +4,7 @@ import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import { getMemberBalanceSnapshot } from '../utils/balance.js';
+import { isValidId } from '../utils/validation.js';
 
 // 智能卡片支付处理函数
 async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
@@ -265,6 +266,8 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
 }
 
 export default async function (fastify, opts) {
+  // 管理员和经理权限
+  const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
   // --- 创建一笔新消费 (手动选卡或非会员) ---
   fastify.post('/', async (request, reply) => {
@@ -1028,9 +1031,14 @@ export default async function (fastify, opts) {
     };
   });
 
-  // 删除交易记录接口
-  fastify.delete('/:transactionId', async (request, reply) => {
+  // 删除交易记录接口 - 需要管理员或经理权限
+  fastify.delete('/:transactionId', managerAndAdminAccess, async (request, reply) => {
     const { transactionId } = request.params;
+
+    // 验证 ID 格式
+    if (!isValidId(transactionId)) {
+      return reply.code(400).send({ message: '无效的交易ID格式' });
+    }
 
     try {
       // 检查交易记录是否存在

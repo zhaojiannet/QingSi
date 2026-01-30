@@ -31,7 +31,6 @@ async function main() {
 
   process.stdout.write('Admin user created successfully!\n');
   process.stdout.write(`Username: ${username}\n`);
-  process.stdout.write(`Password: ${plainPassword} (This is your password, keep it safe)\n`);
 }
 
 main()
