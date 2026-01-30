@@ -1,0 +1,3 @@
+# 拒绝所有搜索引擎收录
+User-agent: *
+Disallow: /
