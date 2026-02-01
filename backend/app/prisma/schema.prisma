@@ -194,6 +194,8 @@ model SystemConfig {
   enableLoginCaptcha    Boolean   @default(true)
   enableTransactionVoid Boolean   @default(false)
   voidEnabledAt         DateTime?
+  bookingCode           String?   @db.VarChar(32)
+  bookingCodeUpdatedAt  DateTime?
 }
 
 model VoidLog {
