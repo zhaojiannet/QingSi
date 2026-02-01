@@ -49,6 +49,14 @@
       >
         <VoidLogManager />
       </el-tab-pane>
+
+      <el-tab-pane
+        label="预约设置"
+        name="booking"
+        :class="{ 'is-hidden': !canAccessBookingSettings }"
+      >
+        <BookingManager />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -62,6 +70,7 @@ import StaffManager from '@/components/settings/StaffManager.vue';
 import PasswordManager from '@/components/settings/PasswordManager.vue';
 import ConfigManager from '@/components/settings/ConfigManager.vue';
 import VoidLogManager from '@/components/settings/VoidLogManager.vue';
+import BookingManager from '@/components/settings/BookingManager.vue';
 
 const userStore = useUserStore();
 
@@ -71,6 +80,7 @@ const canAccessCardTypeManagement = computed(() => userStore.userRole === 'ADMIN
 const canAccessStaffManagement = computed(() => ['ADMIN', 'MANAGER'].includes(userStore.userRole));
 const canAccessGeneralSettings = computed(() => userStore.userRole === 'ADMIN');
 const canAccessVoidLogs = computed(() => ['ADMIN', 'MANAGER'].includes(userStore.userRole));
+const canAccessBookingSettings = computed(() => userStore.userRole === 'ADMIN');
 
 
 // 默认激活第一个Tab，逻辑大大简化
@@ -89,6 +99,7 @@ onMounted(async () => {
         account: true, // 账户设置总是可见
         general: canAccessGeneralSettings.value,
         voidLogs: canAccessVoidLogs.value,
+        booking: canAccessBookingSettings.value,
     };
 
     // 如果当前激活的Tab是不可见的
