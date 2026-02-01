@@ -2,6 +2,7 @@
 
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 // 简单的内存缓存用于密码尝试次数限制
 const passwordAttempts = new Map();
@@ -150,5 +151,49 @@ export default async function (fastify, opts) {
       data: updateData,
     });
     return updatedConfig;
+  });
+
+  // 生成/重新生成预约访问码 - 需要管理员权限
+  // 支持自定义访问码，不传则生成8位随机码
+  fastify.patch('/booking-code', {
+    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')]
+  }, async (request, reply) => {
+    const { customCode } = request.body || {};
+    let newCode;
+
+    if (customCode) {
+      // 自定义访问码：2-20位字母数字下划线
+      if (!/^[a-zA-Z0-9_]{2,20}$/.test(customCode)) {
+        return reply.code(400).send({ error: '访问码只能包含字母、数字、下划线，长度2-20位' });
+      }
+      newCode = customCode;
+    } else {
+      // 默认生成8位随机码
+      newCode = crypto.randomBytes(4).toString('hex');
+    }
+
+    const updatedConfig = await prisma.systemConfig.update({
+      where: { id: 1 },
+      data: {
+        bookingCode: newCode,
+        bookingCodeUpdatedAt: new Date()
+      }
+    });
+
+    return {
+      bookingCode: updatedConfig.bookingCode,
+      bookingCodeUpdatedAt: updatedConfig.bookingCodeUpdatedAt
+    };
+  });
+
+  // 获取当前预约访问码 - 需要管理员权限
+  fastify.get('/booking-code', {
+    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')]
+  }, async (request, reply) => {
+    const config = await getOrCreateConfig();
+    return {
+      bookingCode: config.bookingCode,
+      bookingCodeUpdatedAt: config.bookingCodeUpdatedAt
+    };
   });
 }

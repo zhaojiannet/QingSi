@@ -24,6 +24,7 @@ import userRoutes from './routes/users.js';
 import configRoutes from './routes/configs.js';
 import cardRoutes from './routes/cards.js';
 import voidLogRoutes from './routes/voidLogs.js';
+import bookingRoutes from './routes/booking.js';
 import tokenCleaner from './utils/tokenCleaner.js';
 import { timezonePlugin } from './utils/timezone.js';
 
@@ -205,6 +206,9 @@ fastify.register(configRoutes, { prefix: '/api/configs' });
 
 // 撤销日志路由 - 需要 MANAGER/ADMIN 权限（在路由内部控制）
 fastify.register(voidLogRoutes, { prefix: '/api/void-logs' });
+
+// 公开预约路由 - 无需认证，通过访问码验证
+fastify.register(bookingRoutes, { prefix: '/api/public/booking' });
 
 // 启动服务
 const start = async () => {
