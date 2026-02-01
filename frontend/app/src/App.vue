@@ -1,5 +1,5 @@
 <template>
-  <div v-if="!isLoginPage" class="app-wrapper">
+  <div v-if="!isPublicPage" class="app-wrapper">
     <!-- 统一的顶部导航栏 -->
     <el-header class="app-header">
       <div class="header-content">
@@ -150,7 +150,7 @@ import { useUserStore } from '@/stores/user';
 import { useSystemStore } from '@/stores/system';
 import { useUIStore } from '@/stores/ui';
 import { useRoute } from 'vue-router';
-import { User, UserFilled, ArrowDown, Money, Scissor, PieChart, Operation } from '@element-plus/icons-vue';
+import { User, UserFilled, ArrowDown, Money, Calendar, PieChart, Operation } from '@element-plus/icons-vue';
 import appConfig from '@/config/app.js';
 
 const userStore = useUserStore();
@@ -159,7 +159,7 @@ const uiStore = useUIStore();
 const route = useRoute();
 
 const showBirthdayBadge = ref(false);
-const isLoginPage = computed(() => route.name === 'login');
+const isPublicPage = computed(() => ['login', 'booking'].includes(route.name));
 
 const fetchAllReminders = () => {
   systemStore.fetchTodayAppointmentCount();
@@ -167,7 +167,9 @@ const fetchAllReminders = () => {
 };
 
 onMounted(() => {
-  document.title = appConfig.fullTitle;
+  if (!isPublicPage.value) {
+    document.title = appConfig.fullTitle;
+  }
   if (userStore.isLoggedIn) {
     fetchAllReminders();
   }
@@ -189,7 +191,7 @@ watch(() => userStore.isLoggedIn, (isLoggedIn) => {
 const menuItems = shallowRef([
   { index: '/transactions', title: '收银', icon: Money },
   { index: '/members', title: '会员', icon: User },
-  { index: '/appointments', title: '预约', icon: Scissor },
+  { index: '/appointments', title: '预约', icon: Calendar },
   { index: '/reports', title: '报表', icon: PieChart, roles: ['ADMIN', 'MANAGER'] },
   { index: '/settings', title: '设置', icon: Operation, roles: ['ADMIN'] },
 ]);

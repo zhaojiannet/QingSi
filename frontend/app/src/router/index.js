@@ -15,6 +15,12 @@ const routes = [
     meta: { isPublic: true }
   },
   {
+    path: '/b/:code',
+    name: 'booking',
+    component: () => import('../views/BookingView.vue'),
+    meta: { isPublic: true }
+  },
+  {
     path: '/transactions',
     name: 'transactions',
     component: () => import('../views/TransactionView.vue')
