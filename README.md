@@ -10,7 +10,7 @@
 |------|------|
 | 收银台 | 快速结算、多支付方式、会员卡支付、智能多卡组合、价格调整 |
 | 会员管理 | 会员档案、办卡充值、余额查询、挂账管理、消费记录 |
-| 预约管理 | 在线预约、状态追踪 |
+| 预约管理 | 用户端在线预约、状态追踪、微信通知推送 |
 | 营业报表 | 营业概览、支付统计、项目排行、生日提醒、沉睡会员 |
 | 系统设置 | 服务项目、卡类型、员工管理、交易撤销 |
 
@@ -88,6 +88,52 @@ export default {
 | 宠物 | login_bg08.jpg |
 
 图片位于 `frontend/app/public/images/` 目录。
+
+## 微信通知推送
+
+支持通过微信公众号推送预约通知。
+
+### 配置步骤
+
+1. 申请微信公众号测试号：https://mp.weixin.qq.com/debug/cgi-bin/sandboxinfo
+
+2. 创建模板消息，内容如下：
+```
+姓名：{{name.DATA}}
+电话：{{phone.DATA}}
+时间：{{time.DATA}}
+项目：{{services.DATA}}
+员工：{{staff.DATA}}
+留言：{{message.DATA}}
+```
+
+> 注意：不要使用 `notes` 或 `remark` 作为字段名，这是微信保留字段，不会显示。
+
+3. 部署 Cloudflare Worker（文件在 `cloudflare-workers/` 目录）
+
+4. 配置环境变量：
+```env
+WXPUSH_URL=https://your-worker.workers.dev/wxsend
+WXPUSH_TOKEN=your-api-token
+```
+
+## 版本升级
+
+### 从旧版本升级
+
+如果你的系统已在运行，升级到新版本需要执行数据库迁移：
+
+```bash
+# 进入后端容器
+docker exec -it qingsi_backend sh
+
+# 执行数据库迁移
+npx prisma db push
+```
+
+新增字段说明：
+- `SystemConfig.bookingCode` - 用户端预约访问码
+- `SystemConfig.bookingCodeUpdatedAt` - 访问码更新时间
 
 ## 生产部署
 
