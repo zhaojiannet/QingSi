@@ -2,12 +2,13 @@
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
+import { createCardTypeSchema, updateCardTypeSchema } from '../schemas/cardTypes.js';
 
 export default async function (fastify, opts) {
   const adminOnlyAccess = { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] };
 
   // 创建新卡类型
-  fastify.post('/', adminOnlyAccess, async (request, reply) => {
+  fastify.post('/', { ...adminOnlyAccess, schema: createCardTypeSchema }, async (request, reply) => {
     let { name, initialPrice, discountRate, status } = request.body;
     initialPrice = parseFloat(initialPrice);
     discountRate = parseFloat(discountRate);
@@ -35,7 +36,7 @@ export default async function (fastify, opts) {
   });
 
   // 更新卡类型
-  fastify.put('/:id', adminOnlyAccess, async (request, reply) => {
+  fastify.put('/:id', { ...adminOnlyAccess, schema: updateCardTypeSchema }, async (request, reply) => {
     const { id } = request.params;
     let { name, initialPrice, discountRate, status } = request.body;
     initialPrice = parseFloat(initialPrice);

@@ -2,6 +2,11 @@
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
+import {
+  createAppointmentSchema,
+  updateAppointmentStatusSchema,
+  appointmentsQuerySchema
+} from '../schemas/appointments.js';
 
 export default async function (fastify, opts) {
   
@@ -26,7 +31,7 @@ export default async function (fastify, opts) {
     return { count };
   });
 
-  fastify.post('/', async (request, reply) => {
+  fastify.post('/', { schema: createAppointmentSchema }, async (request, reply) => {
 
     const {
         memberId,
@@ -37,10 +42,6 @@ export default async function (fastify, opts) {
         serviceIds,
         notes,
       } = request.body;
-
-      if (!customerPhone || !appointmentTime || !serviceIds || !serviceIds.length) {
-        return reply.code(400).send({ message: '联系电话、预约时间和服务项目为必填项' });
-      }
 
       const newAppointment = await prisma.appointment.create({
         data: {
@@ -64,7 +65,7 @@ export default async function (fastify, opts) {
 
   });
 
-  fastify.get('/', async (request, reply) => {
+  fastify.get('/', { schema: appointmentsQuerySchema }, async (request, reply) => {
     const { startDate, endDate, staffId, status } = request.query;
     const where = {};
 
@@ -95,13 +96,9 @@ export default async function (fastify, opts) {
 
   });
 
-  fastify.patch('/:id/status', async (request, reply) => {
+  fastify.patch('/:id/status', { schema: updateAppointmentStatusSchema }, async (request, reply) => {
       const { id } = request.params;
       const { status } = request.body;
-      
-      if (!status) {
-          return reply.code(400).send({ message: '必须提供新的状态' });
-      }
 
           const updatedAppointment = await prisma.appointment.update({
               where: { id },

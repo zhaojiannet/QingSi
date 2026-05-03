@@ -2,12 +2,13 @@
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
+import { createServiceSchema, updateServiceSchema } from '../schemas/services.js';
 
 export default async function (fastify, opts) {
   const adminOnlyAccess = { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] };
 
   // 创建新服务项目
-  fastify.post('/', adminOnlyAccess, async (request, reply) => {
+  fastify.post('/', { ...adminOnlyAccess, schema: createServiceSchema }, async (request, reply) => {
     const { name, standardPrice, status, sortOrder, noDiscount } = request.body;
     const newService = await prisma.service.create({
       data: {
@@ -40,7 +41,7 @@ export default async function (fastify, opts) {
   });
 
   // 更新服务项目信息
-  fastify.put('/:id', adminOnlyAccess, async (request, reply) => {
+  fastify.put('/:id', { ...adminOnlyAccess, schema: updateServiceSchema }, async (request, reply) => {
     const { id } = request.params;
     const { name, standardPrice, status, sortOrder, noDiscount } = request.body;
     const updatedService = await prisma.service.update({

@@ -3,6 +3,7 @@
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { updateConfigSchema, updateBookingCodeSchema } from '../schemas/configs.js';
 
 // 简单的内存缓存用于密码尝试次数限制
 const passwordAttempts = new Map();
@@ -89,7 +90,8 @@ export default async function (fastify, opts) {
 
   // 更新配置 - 需要管理员权限
   fastify.patch('/', {
-    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')]
+    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')],
+    schema: updateConfigSchema
   }, async (request, reply) => {
     const { enableLoginCaptcha, enableTransactionVoid, password } = request.body;
     const userId = request.user.id;
@@ -156,16 +158,13 @@ export default async function (fastify, opts) {
   // 生成/重新生成预约访问码 - 需要管理员权限
   // 支持自定义访问码，不传则生成8位随机码
   fastify.patch('/booking-code', {
-    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')]
+    onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')],
+    schema: updateBookingCodeSchema
   }, async (request, reply) => {
     const { customCode } = request.body || {};
     let newCode;
 
     if (customCode) {
-      // 自定义访问码：2-20位字母数字下划线
-      if (!/^[a-zA-Z0-9_]{2,20}$/.test(customCode)) {
-        return reply.code(400).send({ error: '访问码只能包含字母、数字、下划线，长度2-20位' });
-      }
       newCode = customCode;
     } else {
       // 默认生成8位随机码
