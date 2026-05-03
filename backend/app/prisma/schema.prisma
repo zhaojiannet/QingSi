@@ -42,14 +42,12 @@ model Card {
   cardType           CardType      @relation(fields: [cardTypeId], references: [id])
   member             Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
   transactions       Transaction[]
+  transactionLinks   TransactionCardLink[]
 
-  @@index([memberId])
   @@index([cardTypeId])
   @@index([status])
   @@index([issueDate])
   @@index([memberId, status])
-  @@index([balance])
-  @@index([isCustomCard])
 }
 
 model CardType {
@@ -99,6 +97,7 @@ model Transaction {
   member           Member?           @relation(fields: [memberId], references: [id])
   staff            Staff?            @relation(fields: [staffId], references: [id])
   items            TransactionItem[]
+  cardLinks        TransactionCardLink[]
 
   @@index([transactionTime])
   @@index([memberId])
@@ -110,6 +109,19 @@ model Transaction {
   @@index([transactionType])
   @@index([isPending])
   @@index([memberId, isPending])
+}
+
+model TransactionCardLink {
+  id            String      @id @default(cuid())
+  transactionId String
+  cardId        String
+  cardName      String
+  amount        Decimal     @db.Decimal(10, 2)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  card          Card        @relation(fields: [cardId], references: [id])
+
+  @@index([transactionId])
+  @@index([cardId])
 }
 
 model TransactionItem {
