@@ -17,9 +17,8 @@ export function useReportDateRange() {
       case 'this_week': {
         const dayOfWeek = today.getDay();
         const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-        start = new Date(today.setDate(diff));
-        end = new Date(start);
-        end.setDate(start.getDate() + 6);
+        start = new Date(today.getFullYear(), today.getMonth(), diff);
+        end = new Date(today.getFullYear(), today.getMonth(), diff + 6);
         break;
       }
       case 'this_month':
