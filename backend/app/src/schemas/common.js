@@ -26,3 +26,4 @@ export const paymentMethodEnum = ['CASH', 'WECHAT_PAY', 'ALIPAY', 'DOUYIN', 'MEI
 
 export const memberStatusEnum = ['ACTIVE', 'INACTIVE', 'DELETED'];
 export const genderEnum = ['MALE', 'FEMALE', 'UNKNOWN'];
+export const availabilityEnum = ['AVAILABLE', 'UNAVAILABLE'];

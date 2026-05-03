@@ -1,4 +1,4 @@
-const statusEnum = ['AVAILABLE', 'UNAVAILABLE'];
+import { availabilityEnum } from './common.js';
 
 const cardTypeBody = {
   type: 'object',
@@ -7,7 +7,7 @@ const cardTypeBody = {
     name: { type: 'string', minLength: 1, maxLength: 100 },
     initialPrice: { type: ['number', 'string'] },
     discountRate: { type: ['number', 'string'] },
-    status: { type: 'string', enum: statusEnum }
+    status: { type: 'string', enum: availabilityEnum }
   },
   additionalProperties: false
 };

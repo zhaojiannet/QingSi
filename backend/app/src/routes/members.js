@@ -3,9 +3,9 @@
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
-import { isValidId } from '../utils/validation.js';
 import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
 import { getMemberBalanceSnapshot } from '../utils/balance.js';
+import { idParam } from '../schemas/common.js';
 import {
   createMemberSchema,
   updateMemberSchema,
@@ -265,14 +265,9 @@ export default async function (fastify, opts) {
 
 
   // --- 逻辑删除 (常规操作) - 需要管理员或经理权限 ---
-  fastify.delete('/:id', managerAndAdminAccess, async (request, reply) => {
+  fastify.delete('/:id', { ...managerAndAdminAccess, schema: { params: idParam } }, async (request, reply) => {
     const { id } = request.params;
 
-    // 验证 ID 格式
-    if (!isValidId(id)) {
-      return reply.code(400).send({ message: '无效的会员ID格式' });
-    }
-    
     const activeCards = await prisma.card.findMany({
       where: { memberId: id, status: 'ACTIVE', balance: { gt: 0 } }
     });
