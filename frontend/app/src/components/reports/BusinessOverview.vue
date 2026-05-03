@@ -83,8 +83,8 @@
 
           <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="130">
             <template #default="{ row }">
-              <div v-if="row.member && isMultiCardPayment(row)" class="multi-card-list">
-                <div v-for="cardInfo in getMultiCardList(row)" :key="cardInfo.name" class="card-item">
+              <div v-if="row.member && fmt.isMultiCardPayment(row)" class="multi-card-list">
+                <div v-for="cardInfo in fmt.getMultiCardList(row)" :key="cardInfo.name" class="card-item">
                   <el-tag type="warning" size="small" class="card-tag">{{ cardInfo.name }}</el-tag>
                 </div>
               </div>
@@ -107,20 +107,20 @@
               </el-tooltip>
               <el-tooltip
                 v-else-if="row.transactionType === 'PENDING_CLEAR'"
-                :content="getBatchClearTooltip(row)"
+                :content="fmt.getBatchClearTooltip(row)"
                 placement="top"
-                :disabled="!isBatchClear(row)"
+                :disabled="!fmt.isBatchClear(row)"
               >
                 <span class="clear-record">{{ row.summary }}</span>
               </el-tooltip>
               <el-tooltip
                 v-else
-                :content="formatServiceItems(row.items) || row.summary || '项目消费'"
+                :content="fmt.formatServiceItems(row.items) || row.summary || '项目消费'"
                 placement="top"
                 effect="dark"
               >
                 <span class="service-items-text">
-                  {{ formatServiceItems(row.items) || row.summary || '项目消费' }}
+                  {{ fmt.formatServiceItems(row.items) || row.summary || '项目消费' }}
                 </span>
               </el-tooltip>
             </template>
@@ -180,35 +180,35 @@
             <template #default="{ row }">
               <div class="discount-cell">
                 <div v-if="row.manualAdjustment" class="discount-info">
-                  <span class="discount-rate warning">{{ getAdjustmentText(row) }}</span>
-                  <div class="adjustment-reason" v-if="getAdjustmentReason(row)">
-                    {{ getAdjustmentReason(row) }}
+                  <span class="discount-rate warning">{{ fmt.getAdjustmentText(row) }}</span>
+                  <div class="adjustment-reason" v-if="fmt.getAdjustmentReason(row)">
+                    {{ fmt.getAdjustmentReason(row) }}
                   </div>
                 </div>
-                <div v-if="row.member && isMultiCardPayment(row)" class="discount-info" :class="{ 'mt-2': row.manualAdjustment }">
-                  <span class="discount-rate">多卡 {{ getAverageDiscountDisplay(row) }}折</span>
+                <div v-if="row.member && fmt.isMultiCardPayment(row)" class="discount-info" :class="{ 'mt-2': row.manualAdjustment }">
+                  <span class="discount-rate">多卡 {{ fmt.getAverageDiscountDisplay(row) }}折</span>
                   <span class="discount-save">省 {{ formatCurrency(row.discountAmount) }}</span>
-                  <div class="multi-card-details">{{ getMultiCardDetails(row) }}</div>
+                  <div class="multi-card-details">{{ fmt.getMultiCardDetails(row) }}</div>
                 </div>
-                <div v-else-if="row.member && parseFloat(row.discountAmount) > 0 && !row.manualAdjustment && !isMultiCardPayment(row)" class="discount-info">
+                <div v-else-if="row.member && parseFloat(row.discountAmount) > 0 && !row.manualAdjustment && !fmt.isMultiCardPayment(row)" class="discount-info">
                   <template v-if="row.cardUsed">
-                    <span class="discount-rate">{{ getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折</span>
+                    <span class="discount-rate">{{ fmt.getCardDiscountDisplay(row.cardUsed.cardType?.discountRate) }}折</span>
                     <span class="discount-save">省 {{ formatCurrency(row.discountAmount) }}</span>
                   </template>
                   <template v-else>
-                    <span class="discount-rate">{{ getSingleCardDiscountDisplay(row) }}</span>
+                    <span class="discount-rate">{{ fmt.getSingleCardDiscountDisplay(row) }}</span>
                   </template>
                 </div>
-                <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !isMultiCardPayment(row)" class="no-discount">-</span>
+                <span v-if="!row.manualAdjustment && (!row.member || parseFloat(row.discountAmount) <= 0) && !fmt.isMultiCardPayment(row)" class="no-discount">-</span>
               </div>
             </template>
           </el-table-column>
 
           <el-table-column v-if="visibleColumns.includes('time')" prop="transactionTime" label="时间" width="110" align="center">
             <template #default="{ row }">
-              <el-tooltip :content="getTimeTooltip(row)" placement="top" effect="dark">
-                <span :class="{ 'manual-time': isManualTime(row) }">
-                  <el-icon v-if="isManualTime(row)" style="margin-right: 4px;"><Edit /></el-icon>
+              <el-tooltip :content="fmt.getTimeTooltip(row)" placement="top" effect="dark">
+                <span :class="{ 'manual-time': fmt.isManualTime(row) }">
+                  <el-icon v-if="fmt.isManualTime(row)" style="margin-right: 4px;"><Edit /></el-icon>
                   {{ formatShortDateInAppTimeZone(row.transactionTime) }}
                 </span>
               </el-tooltip>
@@ -252,8 +252,12 @@ import { Search, Edit, Operation } from '@element-plus/icons-vue';
 import { useInfiniteScroll } from '@vueuse/core';
 import { getBusinessReport } from '@/api/report.js';
 import { getTransactionsByDateRange } from '@/api/transaction.js';
-import { formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
+import { formatShortDateInAppTimeZone } from '@/utils/date.js';
 import { formatCurrency, formatAmount } from '@/utils/currency.js';
+import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
+import { canVoidTransaction as canVoidTx } from '@/composables/useVoidTransaction.js';
+
+const fmt = useTransactionFormatters();
 
 const props = defineProps({
   dateRange: { type: Array, required: true },
@@ -293,14 +297,7 @@ const getDefaultColumns = () => {
 
 const visibleColumns = ref(getDefaultColumns());
 
-// --- 撤销权限 ---
-const canVoidTransaction = (transaction) => {
-  if (!props.canShowVoidButton) return false;
-  const txTime = new Date(transaction.transactionTime);
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  return txTime >= sevenDaysAgo;
-};
+const canVoidTransaction = (t) => props.canShowVoidButton && canVoidTx(t);
 
 // --- 数据获取 ---
 const fetchBusinessData = async () => {
@@ -397,114 +394,6 @@ watch(() => props.dateRange, fetchBusinessData, { immediate: true });
 const reload = () => fetchBusinessData();
 
 defineExpose({ reload, refreshTransactions: () => fetchTransactionData(true) });
-
-// --- 帮助函数 ---
-const formatServiceItems = (items) => {
-  if (!items || items.length === 0) return '';
-  return items.map(item => {
-    const quantity = item.quantity || 1;
-    return quantity > 1 ? `${item.service.name}*${quantity}` : item.service.name;
-  }).join('、');
-};
-
-const getAdjustmentText = (row) => {
-  if (!row.manualAdjustment) return '';
-  const totalAmount = parseFloat(row.totalAmount);
-  const adjustedAmount = parseFloat(row.actualPaidAmount);
-  const difference = adjustedAmount - totalAmount;
-  if (totalAmount === 0) return `定价 ¥${adjustedAmount.toFixed(2)}`;
-  if (difference > 0) return `加 ¥${difference.toFixed(2)}`;
-  if (difference < 0) return `减 ¥${Math.abs(difference).toFixed(2)}`;
-  return '价格调整';
-};
-
-const getAdjustmentReason = (row) => {
-  if (!row.manualAdjustment || !row.notes) return '';
-  const match = row.notes.match(/价格调整：(.+?)(?:\s*\||$)/);
-  return match ? match[1].trim() : '';
-};
-
-const getCardDiscountDisplay = (discountRate) => {
-  if (!discountRate) return 10;
-  const rate = typeof discountRate === 'object' ? parseFloat(discountRate.toString()) : parseFloat(discountRate);
-  const discount = rate * 10;
-  return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
-};
-
-const isMultiCardPayment = (transaction) => {
-  return transaction.notes && transaction.notes.includes('多卡联合支付:');
-};
-
-const getAverageDiscountDisplay = (transaction) => {
-  const totalAmount = parseFloat(transaction.totalAmount);
-  const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
-  if (totalAmount <= 0 && transaction.notes) {
-    const match = transaction.notes.match(/¥(\d+(?:\.\d+)?)\s*折后\s*¥(\d+(?:\.\d+)?)/);
-    if (match) {
-      const originalPrice = parseFloat(match[1]);
-      const discountedPrice = parseFloat(match[2]);
-      if (originalPrice > 0) {
-        const discount = (discountedPrice / originalPrice) * 10;
-        return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
-      }
-    }
-    return '7.0';
-  }
-  const avgDiscount = (actualPaidAmount / totalAmount) * 10;
-  return avgDiscount % 1 === 0 ? Math.round(avgDiscount) : avgDiscount.toFixed(1);
-};
-
-const getMultiCardDetails = (transaction) => {
-  if (!transaction.notes) return '';
-  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
-  return match && match[1] ? match[1].trim() : '多卡组合支付';
-};
-
-const getMultiCardList = (transaction) => {
-  if (!transaction.notes) return [];
-  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
-  if (match && match[1]) {
-    return match[1].trim().split(' + ').map(part => {
-      const cardMatch = part.match(/^(.+?)¥[\d.]+$/);
-      return { name: cardMatch ? cardMatch[1].trim() : part.trim() };
-    });
-  }
-  return [];
-};
-
-const getSingleCardDiscountDisplay = (transaction) => {
-  const totalAmount = parseFloat(transaction.totalAmount);
-  const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
-  if (totalAmount > 0 && actualPaidAmount > 0) {
-    const discount = (actualPaidAmount / totalAmount) * 10;
-    const display = discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
-    return `${display}折 ¥${formatCurrency(transaction.discountAmount)}`;
-  }
-  return `会员卡 ¥${formatCurrency(transaction.discountAmount)}`;
-};
-
-const isBatchClear = (transaction) => {
-  return transaction.transactionType === 'PENDING_CLEAR'
-    && transaction.summary
-    && transaction.summary.includes('批量清账')
-    && transaction.notes;
-};
-
-const getBatchClearTooltip = (transaction) => {
-  if (!isBatchClear(transaction)) return '';
-  if (transaction.summary && transaction.summary.includes('(¥')) {
-    return transaction.summary.replace(/、/g, '\n• ').replace('批量清账：', '批量清账明细：\n• ');
-  }
-  return transaction.summary;
-};
-
-const isManualTime = (row) => row.notes && row.notes.includes('[手动设置时间]');
-
-const getTimeTooltip = (row) => {
-  const fullTime = formatFullDateTimeInAppTimeZone(row.transactionTime);
-  return isManualTime(row) ? `${fullTime} (此交易时间为手动设置)` : fullTime;
-};
-
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });

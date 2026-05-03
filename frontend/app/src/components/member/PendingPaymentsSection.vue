@@ -222,6 +222,7 @@ import { ElMessage } from 'element-plus';
 import { addPendingPayment, deletePendingPayment, clearAllPendingPayments } from '@/api/member.js';
 import { formatAmount, toDecimal } from '@/utils/currency.js';
 import { formatDateInAppTimeZone } from '@/utils/date.js';
+import { getCardDisplayName } from '@/utils/formatters.js';
 
 const props = defineProps({
   memberId: { type: String, required: true },
@@ -289,13 +290,6 @@ const canConfirmAllClear = computed(() => {
 });
 
 // --- helpers ---
-const getCardDisplayName = (card) => {
-  if (card.isCustomCard && card.customAmount) {
-    return `自定义面值卡(¥${formatAmount(card.customAmount)})`;
-  }
-  return card.cardType.name;
-};
-
 const getCardOptionLabel = (card) => {
   return `${getCardDisplayName(card)} (余额: ¥${formatAmount(card.balance)})`;
 };

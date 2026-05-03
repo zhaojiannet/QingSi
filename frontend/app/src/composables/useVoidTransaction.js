@@ -2,6 +2,14 @@ import { reactive } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { voidTransaction } from '@/api/transaction.js';
 
+// 7 天内可撤销（业务约定）— 独立 export，避免每个用方都重复定义
+export const canVoidTransaction = (transaction) => {
+  const txTime = new Date(transaction.transactionTime);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  return txTime >= sevenDaysAgo;
+};
+
 export function useVoidTransaction() {
   const voidDialog = reactive({
     visible: false,
