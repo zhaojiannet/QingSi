@@ -103,7 +103,7 @@
         </el-descriptions>
 
         <el-alert
-          v-if="voidDialog.transaction.member && voidDialog.transaction.paymentMethod === 'MEMBER_CARD'"
+          v-if="voidDialog.transaction.member && voidDialog.transaction.paymentMethod === PAYMENT_METHODS.MEMBER_CARD"
           type="warning"
           :closable="false"
           show-icon
@@ -149,6 +149,7 @@ import { formatShortDateInAppTimeZone } from '@/utils/date.js';
 import { useReportDateRange } from '@/composables/useReportDateRange.js';
 import { useVoidTransaction } from '@/composables/useVoidTransaction.js';
 import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
+import { PAYMENT_METHODS } from '@/constants/payment.js';
 import BusinessOverview from '@/components/reports/BusinessOverview.vue';
 import PaymentSummary from '@/components/reports/PaymentSummary.vue';
 import CardSalesSummary from '@/components/reports/CardSalesSummary.vue';

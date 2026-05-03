@@ -179,11 +179,12 @@
               <div class="config-item">
                 <label class="config-label">支付方式 <span class="required">*</span></label>
                 <el-select v-model="issueCardForm.paymentMethod" placeholder="选择支付方式" class="config-select">
-                  <el-option value="CASH" label="现金" />
-                  <el-option value="WECHAT_PAY" label="微信" />
-                  <el-option value="ALIPAY" label="支付宝" />
-                  <el-option value="DOUYIN" label="抖音" />
-                  <el-option value="MEITUAN" label="美团" />
+                  <el-option
+                    v-for="opt in ISSUE_CARD_PAYMENT_OPTIONS"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :label="opt.label"
+                  />
                 </el-select>
               </div>
             </div>
@@ -225,6 +226,7 @@ import { issueCardWithTransaction } from '@/api/card.js';
 import { getStaffList } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
 import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType, getCardDisplayName } from '@/utils/formatters.js';
+import { PAYMENT_METHODS, ISSUE_CARD_PAYMENT_OPTIONS } from '@/constants/payment.js';
 import { formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 import PendingPaymentsSection from './PendingPaymentsSection.vue';
@@ -248,7 +250,7 @@ const pendingPayments = ref([]);
 const issueCardForm = reactive({
   cardTypeId: '',
   staffId: null,
-  paymentMethod: 'CASH',
+  paymentMethod: PAYMENT_METHODS.CASH,
   // 自定义面值卡相关字段
   cardMode: 'standard', // 'standard' 或 'custom'
   customAmount: null,
@@ -287,7 +289,7 @@ const onDialogOpen = async () => {
   // 重置表单
   issueCardForm.cardTypeId = '';
   issueCardForm.staffId = null;
-  issueCardForm.paymentMethod = 'CASH';
+  issueCardForm.paymentMethod = PAYMENT_METHODS.CASH;
   issueCardForm.cardMode = 'standard';
   issueCardForm.customAmount = null;
   issueCardForm.discountMode = 'existing';
