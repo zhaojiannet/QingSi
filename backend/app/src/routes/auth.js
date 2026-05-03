@@ -3,8 +3,11 @@
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
 import svgCaptcha from 'svg-captcha';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { loginSchema, refreshSchema, logoutSchema } from '../schemas/auth.js';
+
+// 高熵 refresh token 用 SHA256 hash 存储；数据库不保留可被直接复用的明文。
+const hashRefreshToken = (token) => createHash('sha256').update(token).digest('hex');
 
 export default async function (fastify, opts) {
 
@@ -52,12 +55,12 @@ export default async function (fastify, opts) {
 
     await prisma.refreshToken.create({
       data: {
-        token: refreshTokenValue,
+        token: hashRefreshToken(refreshTokenValue),
         expiresAt: refreshTokenExpiresAt,
         userId: user.id,
       },
     });
-    
+
     return { accessToken, refreshToken: refreshTokenValue };
   });
   
@@ -65,7 +68,7 @@ export default async function (fastify, opts) {
     const { refreshToken } = request.body;
 
     const storedToken = await prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: hashRefreshToken(refreshToken) },
       include: { user: true }
     });
     
@@ -89,7 +92,7 @@ export default async function (fastify, opts) {
     const { refreshToken } = request.body;
     if (refreshToken) {
       await prisma.refreshToken.deleteMany({
-        where: { token: refreshToken }
+        where: { token: hashRefreshToken(refreshToken) }
       });
     }
     return { message: '登出成功' };

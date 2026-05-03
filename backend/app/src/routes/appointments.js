@@ -1,15 +1,17 @@
 // backend/app/src/routes/appointments.js
 
 import prisma from '../db/prisma.js';
-import { generateId } from '../utils/id.js';
+import { generateUniqueId } from '../utils/id.js';
 import {
   createAppointmentSchema,
   updateAppointmentStatusSchema,
   appointmentsQuerySchema
 } from '../schemas/appointments.js';
+import { applyAuth } from '../utils/applyAuth.js';
 
 export default async function (fastify, opts) {
-  
+  applyAuth(fastify, opts);
+
   fastify.get('/count/today', async (request, reply) => {
     const today = new Date();
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -45,7 +47,7 @@ export default async function (fastify, opts) {
 
       const newAppointment = await prisma.appointment.create({
         data: {
-          id: generateId(),
+          id: await generateUniqueId(prisma.appointment),
           customerName: customerName || '非会员用户',
           customerPhone,
           appointmentTime: new Date(appointmentTime),

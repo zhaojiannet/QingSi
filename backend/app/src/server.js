@@ -26,10 +26,26 @@ import cardRoutes from './routes/cards.js';
 import voidLogRoutes from './routes/voidLogs.js';
 import bookingRoutes from './routes/booking.js';
 import tokenCleaner from './utils/tokenCleaner.js';
-import { timezonePlugin } from './utils/timezone.js';
 
 const fastify = Fastify({
-  logger: true,
+  logger: {
+    level: process.env.LOG_LEVEL || 'info',
+    redact: {
+      paths: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.headers["x-csrf-token"]',
+        'res.headers["set-cookie"]',
+        '*.password',
+        '*.token',
+        '*.refreshToken',
+        '*.accessToken',
+        '*.JWT_SECRET',
+        '*.SESSION_SECRET',
+      ],
+      censor: '[REDACTED]',
+    },
+  },
   trustProxy: true  // 信任反向代理的 X-Forwarded-* 头
 });
 
@@ -77,8 +93,8 @@ fastify.register(fastifyHelmet, {
 });
 fastify.register(fastifyCookie);
 
-// 注册时区处理插件
-fastify.register(timezonePlugin);
+// 时区策略：后端始终返回 ISO（UTC）字符串，由前端在显示时按用户时区格式化。
+// 此前的 onSend hook 反模式（JSON.parse → 重写日期字段 → JSON.stringify）已移除。
 
 // Session配置 - 基于环境的安全设置
 const isProduction = process.env.NODE_ENV === 'production';
@@ -138,6 +154,10 @@ fastify.decorate("hasRole", (requiredRoles) => {
 // --- 全局错误处理器 ---
 fastify.setErrorHandler(function (error, request, reply) {
   request.log.error(error);
+  // 业务级错误：原子扣减失败（卡余额不足）
+  if (error.message === 'INSUFFICIENT_BALANCE') {
+    return reply.code(400).send({ message: '卡片余额不足，请刷新后重试' });
+  }
   if (error.code && error.code.startsWith('P')) {
     switch (error.code) {
       case 'P2002': {

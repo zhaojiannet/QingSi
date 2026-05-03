@@ -3,6 +3,7 @@
 const store = new Map();
 const WINDOW_MS = 60 * 1000; // 1分钟
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5分钟清理一次
+const MAX_ENTRIES = 10000; // 防内存泄漏：超过上限按 LRU 淘汰最早条目
 
 setInterval(() => {
   const now = Date.now();
@@ -26,5 +27,11 @@ export function checkRateLimit(key) {
 }
 
 export function recordRequest(key) {
+  // Map 迭代顺序为插入顺序，超额时淘汰最早项即可达到 LRU 效果
+  if (store.size >= MAX_ENTRIES && !store.has(key)) {
+    const oldest = store.keys().next().value;
+    if (oldest !== undefined) store.delete(oldest);
+  }
+  store.delete(key);
   store.set(key, Date.now());
 }
