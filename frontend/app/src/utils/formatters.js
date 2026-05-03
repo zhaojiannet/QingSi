@@ -61,3 +61,15 @@ export const cardStatusTagType = (status) => {
   const map = { ACTIVE: 'success', DEPLETED: 'info', EXPIRED: 'warning', FROZEN: 'danger' };
   return map[status] || 'info';
 };
+
+/**
+ * 卡片显示名称（自定义面值卡 vs 标准卡）
+ * 抽出避免在 MemberDetailDrawer / TransactionView / PendingPaymentsSection 三处重复
+ */
+export const getCardDisplayName = (card) => {
+  if (card.isCustomCard && card.customAmount) {
+    const amount = Number(card.customAmount).toFixed(2);
+    return `自定义面值卡(¥${amount})`;
+  }
+  return card.cardType?.name || '会员卡';
+};

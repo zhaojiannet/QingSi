@@ -378,6 +378,7 @@ import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
 import { formatShortDateInAppTimeZone } from '@/utils/date.js';
 import { useVoidTransaction } from '@/composables/useVoidTransaction.js';
 import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
+import { getCardDisplayName } from '@/utils/formatters.js';
 import TodayTransactionList from '@/components/transactions/TodayTransactionList.vue';
 
 const roundToTwoDecimals = (value) => Math.round(value * 100) / 100;
@@ -424,12 +425,11 @@ const form = reactive(getInitialForm());
 // helper（撤销对话框需要的几个）
 const { formatServiceItems } = useTransactionFormatters();
 
-onMounted(async () => {
-  try {
-    systemConfig.value = await getSystemConfig();
-  } catch (e) {
-    console.error('获取系统配置失败:', e);
-  }
+onMounted(() => {
+  // systemConfig 不阻塞首屏，并发触发即可（仅影响撤销按钮显示）
+  getSystemConfig()
+    .then(c => { systemConfig.value = c; })
+    .catch(e => console.error('获取系统配置失败:', e));
 
   const appointmentData = transactionStore.consumeAppointmentToCheckout();
   if (appointmentData) {
@@ -531,6 +531,9 @@ const canShowVoidButton = computed(() => {
 
 const sortedServiceList = computed(() => [...serviceList.value].sort((a, b) => a.sortOrder - b.sortOrder));
 
+// O(1) 查找替代 Array.find — 多个 computed 都依赖此查找
+const serviceMap = computed(() => new Map(serviceList.value.map(s => [s.id, s])));
+
 // 服务数量
 const serviceQuantities = reactive({});
 
@@ -541,7 +544,7 @@ const onTransactionTimeChange = (value) => {
 const cartItems = computed(() => {
   const ids = [...new Set(form.serviceIds)];
   return ids.map(serviceId => {
-    const service = serviceList.value.find(s => s.id === serviceId);
+    const service = serviceMap.value.get(serviceId);
     if (!service) return null;
     return { ...service, quantity: serviceQuantities[serviceId] || 1 };
   }).filter(Boolean);
@@ -607,17 +610,17 @@ watch(serviceQuantities, () => updateTagBadges(), { deep: true });
 watch(uniqueServiceIds, () => updateTagBadges());
 
 const totalAmount = computed(() => form.serviceIds.reduce((sum, sid) => {
-  const s = serviceList.value.find(x => x.id === sid);
+  const s = serviceMap.value.get(sid);
   return s ? sum.plus(new Decimal(s.standardPrice)) : sum;
 }, new Decimal(0)));
 
 const discountableAmount = computed(() => form.serviceIds.reduce((sum, sid) => {
-  const s = serviceList.value.find(x => x.id === sid);
+  const s = serviceMap.value.get(sid);
   return (s && !s.noDiscount) ? sum.plus(new Decimal(s.standardPrice)) : sum;
 }, new Decimal(0)));
 
 const noDiscountAmount = computed(() => form.serviceIds.reduce((sum, sid) => {
-  const s = serviceList.value.find(x => x.id === sid);
+  const s = serviceMap.value.get(sid);
   return (s && s.noDiscount) ? sum.plus(new Decimal(s.standardPrice)) : sum;
 }, new Decimal(0)));
 
@@ -627,13 +630,6 @@ const availableCards = computed(() => {
     .filter(c => c.status === 'ACTIVE' && new Decimal(c.balance).gt(0))
     .sort((a, b) => new Decimal(a.balance).minus(new Decimal(b.balance)).toNumber());
 });
-
-const getCardDisplayName = (card) => {
-  if (card.isCustomCard && card.customAmount) {
-    return `自定义面值卡(¥${formatAmount(card.customAmount)})`;
-  }
-  return card.cardType.name;
-};
 
 const getCardDiscountRate = (card) => {
   if (card.discountSource === 'custom' && card.customDiscountRate) {

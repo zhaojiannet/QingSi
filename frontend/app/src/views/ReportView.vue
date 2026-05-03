@@ -148,6 +148,7 @@ import { useUserStore } from '@/stores/user';
 import { formatShortDateInAppTimeZone } from '@/utils/date.js';
 import { useReportDateRange } from '@/composables/useReportDateRange.js';
 import { useVoidTransaction } from '@/composables/useVoidTransaction.js';
+import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
 import BusinessOverview from '@/components/reports/BusinessOverview.vue';
 import PaymentSummary from '@/components/reports/PaymentSummary.vue';
 import CardSalesSummary from '@/components/reports/CardSalesSummary.vue';
@@ -186,14 +187,7 @@ const handleConfirmVoid = () => {
   });
 };
 
-// 仅用于撤销对话框中显示项目名称
-const formatVoidServiceItems = (items) => {
-  if (!items || items.length === 0) return '';
-  return items.map(item => {
-    const quantity = item.quantity || 1;
-    return quantity > 1 ? `${item.service.name}*${quantity}` : item.service.name;
-  }).join('、');
-};
+const { formatServiceItems: formatVoidServiceItems } = useTransactionFormatters();
 
 // --- 日期切换 ---
 const handleDateChange = () => {

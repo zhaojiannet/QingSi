@@ -224,7 +224,7 @@ import { getCardTypeList } from '@/api/cardType.js';
 import { issueCardWithTransaction } from '@/api/card.js';
 import { getStaffList } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
-import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType } from '@/utils/formatters.js';
+import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType, getCardDisplayName } from '@/utils/formatters.js';
 import { formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 import PendingPaymentsSection from './PendingPaymentsSection.vue';
@@ -444,14 +444,6 @@ const getEffectiveCardStatusTagType = (card) => {
   return cardStatusTagType(card.status);
 };
 
-// 获取卡片显示名称（区分自定义面值卡）
-const getCardDisplayName = (card) => {
-  if (card.isCustomCard && card.customAmount) {
-    return `自定义面值卡(¥${formatAmount(card.customAmount)})`;
-  }
-  return card.cardType.name;
-};
-
 // 获取卡片折扣信息显示
 const getCardDiscountDisplay = (card) => {
   if (card.discountSource === 'custom' && card.customDiscountRate) {
@@ -492,20 +484,12 @@ const remainingDepletedCardsCount = computed(() => {
   return depletedCards.value.length - depletedCardsOffset.value;
 });
 
-// 加载更多余额已用尽的会员卡
-const loadMoreDepletedCards = async () => {
-  loadingMoreCards.value = true;
-  
-  // 模拟网络延迟
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  // 增加偏移量，每次加载5张
+// 加载更多余额已用尽的会员卡（同步分页，数据已在内存）
+const loadMoreDepletedCards = () => {
   depletedCardsOffset.value = Math.min(
     depletedCardsOffset.value + depletedCardsPageSize,
     depletedCards.value.length
   );
-  
-  loadingMoreCards.value = false;
 };
 
 
@@ -578,12 +562,6 @@ defineExpose({ open });
   white-space: nowrap;
 }
 
-/* 清账对话框样式 */
-.no-cards-tip {
-  margin-top: 8px;
-  color: #f56c6c;
-  font-size: 12px;
-}
 
 .card-item.depleted-card .el-tag {
   transform: scale(0.85);
@@ -683,117 +661,4 @@ defineExpose({ open });
   margin-top: 4px;
 }
 
-/* 挂账样式 */
-.pending-section {
-  padding: 10px;
-  background-color: #f9f9f9;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  margin-top: 10px;
-}
-
-.pending-list {
-  margin-bottom: 10px;
-}
-
-.pending-col {
-  margin-bottom: 6px;
-}
-
-.pending-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  background-color: #fff;
-  border: 1px solid #ebeef5;
-  border-radius: 3px;
-  min-height: 50px;
-}
-
-.pending-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.pending-amount {
-  font-size: 14px;
-  font-weight: bold;
-  color: #f56c6c;
-  line-height: 1.2;
-}
-
-.pending-description {
-  font-size: 12px;
-  color: #606266;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pending-date {
-  font-size: 11px;
-  color: #909399;
-  line-height: 1.1;
-}
-
-.delete-btn {
-  flex-shrink: 0;
-  margin-left: 8px;
-  padding: 2px 8px;
-  font-size: 11px;
-  height: 24px;
-}
-
-.pending-total {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 500;
-}
-
-.total-label {
-  font-size: 13px;
-  color: #606266;
-}
-
-.total-amount {
-  font-size: 14px;
-  font-weight: bold;
-  color: #409eff;
-}
-
-.pending-actions {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background-color: #f0f9ff;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.no-pending {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-}
-
-.no-pending span {
-  color: #909399;
-  font-style: italic;
-  font-size: 13px;
-}
 </style>
