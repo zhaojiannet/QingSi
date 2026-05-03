@@ -3,8 +3,8 @@
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
-import { isValidId } from '../utils/validation.js';
 import { issueWithTransactionSchema } from '../schemas/cards.js';
+import { idParam } from '../schemas/common.js';
 
 export default async function (fastify, opts) {
   // 管理员和经理权限
@@ -78,13 +78,11 @@ export default async function (fastify, opts) {
   });
 
   // 删除会员卡接口 - 需要管理员或经理权限
-  fastify.delete('/:cardId', managerAndAdminAccess, async (request, reply) => {
+  fastify.delete('/:cardId', {
+    ...managerAndAdminAccess,
+    schema: { params: { type: 'object', required: ['cardId'], properties: { cardId: { type: 'string', pattern: '^[a-zA-Z0-9_-]+$', minLength: 1, maxLength: 191 } } } }
+  }, async (request, reply) => {
     const { cardId } = request.params;
-
-    // 验证 ID 格式
-    if (!isValidId(cardId)) {
-      return reply.code(400).send({ message: '无效的会员卡ID格式' });
-    }
 
     try {
       // 检查会员卡是否存在

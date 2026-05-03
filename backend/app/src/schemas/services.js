@@ -1,4 +1,4 @@
-const statusEnum = ['AVAILABLE', 'UNAVAILABLE'];
+import { availabilityEnum } from './common.js';
 
 const serviceBody = {
   type: 'object',
@@ -6,7 +6,7 @@ const serviceBody = {
   properties: {
     name: { type: 'string', minLength: 1, maxLength: 100 },
     standardPrice: { type: ['number', 'string'] },
-    status: { type: 'string', enum: statusEnum },
+    status: { type: 'string', enum: availabilityEnum },
     sortOrder: { type: 'integer', minimum: 0, maximum: 9999 },
     noDiscount: { type: 'boolean' }
   },
