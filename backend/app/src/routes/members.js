@@ -3,18 +3,23 @@
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
-import { schemas, createValidationHook, isValidId } from '../utils/validation.js';
+import { isValidId } from '../utils/validation.js';
 import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
 import { getMemberBalanceSnapshot } from '../utils/balance.js';
+import {
+  createMemberSchema,
+  updateMemberSchema,
+  issueCardSchema,
+  addPendingSchema,
+  clearPendingSchema
+} from '../schemas/members.js';
 
 export default async function (fastify, opts) {
   // 管理员和经理权限
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
-  // 创建新会员 - 添加输入验证
-  fastify.post('/', {
-    preValidation: createValidationHook(schemas.member.create)
-  }, async (request, reply) => {
+  // 创建新会员 - JSON Schema 验证
+  fastify.post('/', { schema: createMemberSchema }, async (request, reply) => {
       const { name, phone, gender, birthday, notes } = request.body;
       
       // 手机号唯一性校验（除了占位符 00000000000）
@@ -224,7 +229,7 @@ export default async function (fastify, opts) {
 
 
    // --- 新增：更新会员信息 ---
-  fastify.put('/:id', async (request, reply) => {
+  fastify.put('/:id', { schema: updateMemberSchema }, async (request, reply) => {
     const { id } = request.params;
     const { name, phone, gender, birthday, status, notes } = request.body;
 
@@ -338,13 +343,9 @@ export default async function (fastify, opts) {
 
 
   // 为指定会员办理新卡
-  fastify.post('/:memberId/cards', async (request, reply) => {
+  fastify.post('/:memberId/cards', { schema: issueCardSchema }, async (request, reply) => {
     const { memberId } = request.params;
     const { cardTypeId, expiryDate } = request.body;
-
-    if (!cardTypeId) {
-      return reply.code(400).send({ message: '必须提供卡类型ID (cardTypeId)' });
-    }
 
       const cardType = await prisma.cardType.findUnique({
         where: { id: cardTypeId },
@@ -408,13 +409,9 @@ export default async function (fastify, opts) {
   });
 
   // 添加会员挂账（创建Transaction记录）
-  fastify.post('/:id/pending', async (request, reply) => {
+  fastify.post('/:id/pending', { schema: addPendingSchema }, async (request, reply) => {
     const { id } = request.params;
     const { amount, description, createdAt } = request.body;
-    
-    if (!amount || amount <= 0) {
-      return reply.code(400).send({ message: '挂账金额必须大于0' });
-    }
 
     // 幂等性检查：防止重复提交
     // 检查最近5秒内是否有相同的挂账记录
@@ -472,7 +469,7 @@ export default async function (fastify, opts) {
   });
 
   // 删除单个挂账记录（结清挂账）
-  fastify.delete('/:id/pending/:pendingId', async (request, reply) => {
+  fastify.delete('/:id/pending/:pendingId', { schema: clearPendingSchema }, async (request, reply) => {
     const { id, pendingId } = request.params;
     const { paymentMethod = 'OTHER', cardId } = request.body || {};
 
@@ -574,7 +571,7 @@ export default async function (fastify, opts) {
   });
 
   // 清除会员所有挂账（批量结清）
-  fastify.delete('/:id/pending', async (request, reply) => {
+  fastify.delete('/:id/pending', { schema: clearPendingSchema }, async (request, reply) => {
     const { id } = request.params;
     const { paymentMethod = 'OTHER', cardId } = request.body || {};
 

@@ -2,27 +2,21 @@
 
 import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
+import { passwordChangeSchema } from '../schemas/auth.js';
 
 export default async function (fastify, opts) {
-  
+
   const routeOptions = {
     onRequest: [fastify.authenticate],
+    schema: passwordChangeSchema,
   };
 
   // --- 优化：修改密码后使其所有设备下线 ---
   fastify.patch('/password', routeOptions, async (request, reply) => {
-    const { id: userId } = request.user; 
+    const { id: userId } = request.user;
     const { oldPassword, newPassword } = request.body;
 
-    if (!oldPassword || !newPassword) {
-      return reply.code(400).send({ message: '旧密码和新密码均不能为空' });
-    }
-
-    if (newPassword.length < 6) {
-        return reply.code(400).send({ message: '新密码长度不能少于6位' });
-    }
-
-    const user = await prisma.user.findUnique({ 
+    const user = await prisma.user.findUnique({
       where: { id: userId } 
     });
 
