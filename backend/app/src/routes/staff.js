@@ -2,16 +2,14 @@
 
 import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
+import { createStaffSchema, updateStaffSchema, staffListQuerySchema } from '../schemas/staff.js';
 
 export default async function (fastify, opts) {
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
   // 创建新员工
-  fastify.post('/', managerAndAdminAccess, async (request, reply) => {
+  fastify.post('/', { ...managerAndAdminAccess, schema: createStaffSchema }, async (request, reply) => {
     let { name, position, phone, status, countsCommission, sortOrder } = request.body;
-    if (!name || !position) {
-      return reply.code(400).send({ message: '缺少必要参数：姓名、职位' });
-    }
 
     // --- 核心修复：将空字符串转换为 null ---
     if (phone === '') {
@@ -33,7 +31,7 @@ export default async function (fastify, opts) {
   });
 
   // 获取所有员工列表
-  fastify.get('/', { onRequest: [fastify.authenticate] }, async (request, reply) => {
+  fastify.get('/', { onRequest: [fastify.authenticate], schema: staffListQuerySchema }, async (request, reply) => {
     const { status } = request.query;
     const where = {};
     if (status) {
@@ -50,7 +48,7 @@ export default async function (fastify, opts) {
   });
 
   // 更新员工信息
-  fastify.put('/:id', managerAndAdminAccess, async (request, reply) => {
+  fastify.put('/:id', { ...managerAndAdminAccess, schema: updateStaffSchema }, async (request, reply) => {
     const { id } = request.params;
     let { name, position, phone, countsCommission, status, sortOrder } = request.body;
     const dataToUpdate = {};

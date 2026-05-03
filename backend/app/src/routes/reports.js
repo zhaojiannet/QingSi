@@ -2,21 +2,22 @@
 
 import prisma from '../db/prisma.js';
 import Decimal from 'decimal.js';
+import {
+  businessReportSchema,
+  paymentSummarySchema,
+  cardSalesSummarySchema,
+  serviceRankingSchema,
+  memberRankingSchema,
+  sleepingMembersSchema,
+  pendingStatsSchema
+} from '../schemas/reports.js';
 
 export default async function (fastify, opts) {
   // --- 营业报表 ---
-  fastify.get('/business', async (request, reply) => {
+  fastify.get('/business', { schema: businessReportSchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    if (!startDate || !endDate) {
-      return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
-    }
-
-    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return reply.code(400).send({ message: '日期格式无效' });
-    }
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
@@ -63,7 +64,7 @@ export default async function (fastify, opts) {
   });
 
   // 项目销售排行榜
-  fastify.get('/service-ranking', async (request, reply) => {
+  fastify.get('/service-ranking', { schema: serviceRankingSchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
 
     // 验证和限制分页参数
@@ -129,7 +130,7 @@ export default async function (fastify, opts) {
   });
 
   // 沉睡会员报表 - 基于Transaction表动态计算，避免lastVisitDate不同步问题
-  fastify.get('/sleeping-members', async (request, reply) => {
+  fastify.get('/sleeping-members', { schema: sleepingMembersSchema }, async (request, reply) => {
     // 验证和限制分页参数
     const page = Math.max(1, parseInt(request.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));
@@ -200,7 +201,7 @@ export default async function (fastify, opts) {
   });
 
   // 会员消费排行榜
-  fastify.get('/member-ranking', async (request, reply) => {
+  fastify.get('/member-ranking', { schema: memberRankingSchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
 
     // 验证和限制分页参数
@@ -323,18 +324,10 @@ export default async function (fastify, opts) {
   });
 
   // --- 新增1：支付方式构成分析 ---
-  fastify.get('/payment-summary', async (request, reply) => {
+  fastify.get('/payment-summary', { schema: paymentSummarySchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    if (!startDate || !endDate) {
-      return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
-    }
-
-    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return reply.code(400).send({ message: '日期格式无效' });
-    }
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
@@ -378,18 +371,10 @@ export default async function (fastify, opts) {
   });
 
   // --- 新增2：会员卡销售分析 ---
-  fastify.get('/card-sales-summary', async (request, reply) => {
+  fastify.get('/card-sales-summary', { schema: cardSalesSummarySchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    if (!startDate || !endDate) {
-      return reply.code(400).send({ message: '必须提供 startDate 和 endDate' });
-    }
-
-    // 验证日期格式
     const start = new Date(startDate);
     const end = new Date(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return reply.code(400).send({ message: '日期格式无效' });
-    }
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
@@ -444,7 +429,7 @@ export default async function (fastify, opts) {
   });
 
   // --- 挂账统计报表 ---
-  fastify.get('/pending-stats', async (request, reply) => {
+  fastify.get('/pending-stats', { schema: pendingStatsSchema }, async (request, reply) => {
     // 验证和限制分页参数
     const page = Math.max(1, parseInt(request.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));

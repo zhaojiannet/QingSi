@@ -4,46 +4,24 @@ import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import { isValidId } from '../utils/validation.js';
+import { issueWithTransactionSchema } from '../schemas/cards.js';
 
 export default async function (fastify, opts) {
   // 管理员和经理权限
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
-  fastify.post('/issue-with-transaction', async (request, reply) => {
-      const { 
-        memberId, 
-        cardTypeId, 
-        staffId, 
+  fastify.post('/issue-with-transaction', { schema: issueWithTransactionSchema }, async (request, reply) => {
+      const {
+        memberId,
+        cardTypeId,
+        staffId,
         paymentMethod,
-        // 自定义面值卡相关字段
         isCustomCard = false,
         customAmount,
         discountSource = 'card_type',
         customDiscountRate
       } = request.body;
 
-      if (!memberId || !cardTypeId) {
-        return reply.code(400).send({ message: '会员和卡类型均为必填项。' });
-      }
-
-      // 验证 ID 格式
-      if (!isValidId(memberId) || !isValidId(cardTypeId)) {
-        return reply.code(400).send({ message: '无效的ID格式' });
-      }
-      if (staffId && !isValidId(staffId)) {
-        return reply.code(400).send({ message: '无效的员工ID格式' });
-      }
-      
-      // 自定义面值卡的额外验证
-      if (isCustomCard) {
-        if (!customAmount || customAmount <= 0) {
-          return reply.code(400).send({ message: '自定义面值卡必须提供有效的金额。' });
-        }
-        if (discountSource === 'custom' && (!customDiscountRate || customDiscountRate <= 0 || customDiscountRate > 1)) {
-          return reply.code(400).send({ message: '自定义折扣率必须在0-1之间。' });
-        }
-      }
-      
       const cardType = await prisma.cardType.findUnique({ where: { id: cardTypeId } });
       if (!cardType) {
         return reply.code(404).send({ message: '卡类型不存在' });

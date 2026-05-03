@@ -2,11 +2,13 @@
 
 import prisma from '../db/prisma.js';
 import Decimal from 'decimal.js';
+import { voidLogsQuerySchema } from '../schemas/voidLogs.js';
 
 export default async function (fastify, opts) {
   // 获取撤销日志列表 - 需要 ADMIN 或 MANAGER 权限
   fastify.get('/', {
-    onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])]
+    onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])],
+    schema: voidLogsQuerySchema
   }, async (request, reply) => {
     const {
       page = 1,
