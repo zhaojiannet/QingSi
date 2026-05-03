@@ -2,19 +2,19 @@
   <div>
     <el-row :gutter="20" v-loading="businessReport.loading" class="stats-cards">
       <el-col :span="5" :xs="12">
-        <el-statistic title="总消费 (元)" :value="businessReport.data.totalRevenue" />
+        <el-statistic title="总消费 (元)" :value="Number(businessReport.data.totalRevenue) || 0" :precision="2" />
       </el-col>
       <el-col :span="5" :xs="12">
-        <el-statistic title="卡耗 (元)" :value="businessReport.data.cardConsumption" />
+        <el-statistic title="卡耗 (元)" :value="Number(businessReport.data.cardConsumption) || 0" :precision="2" />
       </el-col>
       <el-col :span="5" :xs="12">
-        <el-statistic title="充值 (元)" :value="businessReport.data.totalRecharge" />
+        <el-statistic title="充值 (元)" :value="Number(businessReport.data.totalRecharge) || 0" :precision="2" />
       </el-col>
       <el-col :span="5" :xs="12">
         <el-statistic title="总客数" :value="businessReport.data.totalCustomers" />
       </el-col>
       <el-col :span="4" :xs="12">
-        <el-statistic title="客单价 (元)" :value="businessReport.data.averageOrderValue" />
+        <el-statistic title="客单价 (元)" :value="Number(businessReport.data.averageOrderValue) || 0" :precision="2" />
       </el-col>
     </el-row>
 

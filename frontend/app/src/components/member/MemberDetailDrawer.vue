@@ -225,6 +225,7 @@ import { getCardTypeList } from '@/api/cardType.js';
 import { issueCardWithTransaction } from '@/api/card.js';
 import { getStaffList } from '@/api/staff.js';
 import { ElMessage } from 'element-plus';
+import Decimal from 'decimal.js';
 import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType, getCardDisplayName } from '@/utils/formatters.js';
 import { PAYMENT_METHODS, ISSUE_CARD_PAYMENT_OPTIONS } from '@/constants/payment.js';
 import { formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';

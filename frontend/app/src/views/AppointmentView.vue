@@ -22,9 +22,9 @@
         </el-form-item>
         <el-form-item>
           <el-radio-group v-model="quickDate" @change="handleQuickDateChange">
-            <el-radio-button label="today">当日</el-radio-button>
-            <el-radio-button label="this_week">当周</el-radio-button>
-            <el-radio-button label="this_month">当月</el-radio-button>
+            <el-radio-button value="today">当日</el-radio-button>
+            <el-radio-button value="this_week">当周</el-radio-button>
+            <el-radio-button value="this_month">当月</el-radio-button>
           </el-radio-group>
         </el-form-item>
       </el-form>

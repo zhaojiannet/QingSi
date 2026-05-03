@@ -4,7 +4,7 @@
     <div class="pending-summary">
       <el-row :gutter="20" v-loading="state.loading" class="stats-cards">
         <el-col :span="6" :xs="12">
-          <el-statistic title="总挂账金额 (元)" :value="state.summary.totalAmount" />
+          <el-statistic title="总挂账金额 (元)" :value="Number(state.summary.totalAmount) || 0" :precision="2" />
         </el-col>
         <el-col :span="6" :xs="12">
           <el-statistic title="挂账会员数" :value="state.summary.memberCount" />
@@ -13,7 +13,7 @@
           <el-statistic title="挂账记录数" :value="state.summary.recordCount" />
         </el-col>
         <el-col :span="6" :xs="12">
-          <el-statistic title="平均挂账金额 (元)" :value="state.summary.averageAmount" />
+          <el-statistic title="平均挂账金额 (元)" :value="Number(state.summary.averageAmount) || 0" :precision="2" />
         </el-col>
       </el-row>
     </div>

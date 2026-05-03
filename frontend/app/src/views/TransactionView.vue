@@ -43,7 +43,7 @@
 
           <el-form-item label="选择服务">
             <el-select
-              v-model="uniqueServiceIds"
+              :model-value="uniqueServiceIds"
               multiple
               filterable
               placeholder="请选择服务项目"
