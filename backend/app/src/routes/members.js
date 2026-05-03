@@ -1,11 +1,12 @@
 //backend/app/src/routes/members.js
 
 import prisma from '../db/prisma.js';
-import { generateId } from '../utils/id.js';
+import { generateId, generateUniqueId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import cache, { cacheKeys, invalidateCache } from '../utils/cache.js';
-import { getMemberBalanceSnapshot } from '../utils/balance.js';
+import { getMemberBalanceSnapshot, atomicDecrementBalance } from '../utils/balance.js';
 import { idParam } from '../schemas/common.js';
+import { applyAuth } from '../utils/applyAuth.js';
 import {
   createMemberSchema,
   updateMemberSchema,
@@ -15,6 +16,7 @@ import {
 } from '../schemas/members.js';
 
 export default async function (fastify, opts) {
+  applyAuth(fastify, opts);
   // 管理员和经理权限
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
@@ -36,7 +38,7 @@ export default async function (fastify, opts) {
       
       const newMember = await prisma.member.create({
         data: {
-          id: generateId(),
+          id: await generateUniqueId(prisma.member),
           name,
           phone,
           gender,
@@ -352,7 +354,7 @@ export default async function (fastify, opts) {
 
       const newCard = await prisma.card.create({
         data: {
-          id: generateId(),
+          id: await generateUniqueId(prisma.card),
           member: {
             connect: { id: memberId },
           },
@@ -438,7 +440,7 @@ export default async function (fastify, opts) {
 
     const transaction = await prisma.transaction.create({
       data: {
-        id: generateId(),
+        id: await generateUniqueId(prisma.transaction),
         memberId: id,
         totalAmount: -amount, // 负金额表示欠款
         actualPaidAmount: -amount,
@@ -505,20 +507,13 @@ export default async function (fastify, opts) {
           throw new Error('会员卡已停用，无法使用');
         }
 
-        // 验证余额充足
+        // 验证余额充足（应用层预检查 + 下一步原子扣减保护并发超扣）
         if (new Decimal(cardUsed.balance).lessThan(new Decimal(pendingAmount))) {
           throw new Error(`会员卡余额不足，当前余额：¥${cardUsed.balance}，需要支付：¥${pendingAmount}`);
         }
 
-        // 3. 扣减会员卡余额
-        const updatedCard = await tx.card.update({
-          where: { id: cardId },
-          data: {
-            balance: {
-              decrement: pendingAmount
-            }
-          }
-        });
+        // 3. 原子扣减会员卡余额
+        await atomicDecrementBalance(tx, cardId, Number(pendingAmount));
 
         // 生成卡片显示名称
         const cardDisplayName = cardUsed.isCustomCard
@@ -541,7 +536,7 @@ export default async function (fastify, opts) {
       // 5. 创建清账记录
       await tx.transaction.create({
         data: {
-          id: generateId(),
+          id: await generateUniqueId(tx.transaction),
           memberId: id,
           totalAmount: pendingAmount, // 正金额表示收回
           actualPaidAmount: pendingAmount,
@@ -612,20 +607,13 @@ export default async function (fastify, opts) {
           throw new Error('会员卡已停用，无法使用');
         }
 
-        // 验证余额充足
+        // 验证余额充足（应用层预检查 + 下一步原子扣减保护并发超扣）
         if (new Decimal(cardUsed.balance).lessThan(new Decimal(totalAmount))) {
           throw new Error(`会员卡余额不足，当前余额：¥${cardUsed.balance}，需要支付：¥${totalAmount}`);
         }
 
-        // 3. 扣减会员卡余额
-        const updatedCard = await tx.card.update({
-          where: { id: cardId },
-          data: {
-            balance: {
-              decrement: totalAmount
-            }
-          }
-        });
+        // 3. 原子扣减会员卡余额
+        await atomicDecrementBalance(tx, cardId, Number(totalAmount));
 
         clearNotesPrefix = 'CARD_CLEAR_ALL_PENDING';
         // 记录会员所有卡的余额快照（包含交易前后余额）
@@ -680,7 +668,7 @@ export default async function (fastify, opts) {
       // 6. 创建批量清账记录
       await tx.transaction.create({
         data: {
-          id: generateId(),
+          id: await generateUniqueId(tx.transaction),
           memberId: id,
           totalAmount: totalAmount,
           actualPaidAmount: totalAmount,

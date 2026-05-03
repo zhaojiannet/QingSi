@@ -1,9 +1,9 @@
 // backend/app/src/routes/transactions.js
 
 import prisma from '../db/prisma.js';
-import { generateId } from '../utils/id.js';
+import { generateId, generateUniqueId } from '../utils/id.js';
 import Decimal from 'decimal.js';
-import { getMemberBalanceSnapshot } from '../utils/balance.js';
+import { getMemberBalanceSnapshot, atomicDecrementBalance } from '../utils/balance.js';
 import {
   createTransactionSchema,
   comboCheckoutSchema,
@@ -11,6 +11,7 @@ import {
   voidTransactionSchema,
   transactionsQuerySchema
 } from '../schemas/transactions.js';
+import { applyAuth } from '../utils/applyAuth.js';
 
 // 智能卡片支付处理函数
 async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
@@ -203,12 +204,9 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
 
   // 执行多卡支付事务
   const result = await prisma.$transaction(async (tx) => {
-    // 更新所有卡余额
+    // 原子扣减所有使用的卡余额
     for (const detail of paymentDetails) {
-      await tx.card.update({
-        where: { id: detail.cardId },
-        data: { balance: detail.newBalance }
-      });
+      await atomicDecrementBalance(tx, detail.cardId, detail.actualPaid);
     }
 
     // 获取使用的卡ID列表和扣款金额
@@ -225,10 +223,10 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
       return sum.plus(new Decimal(detail.discountAmount || 0));
     }, new Decimal(0));
 
-    // 创建交易记录
+    // 创建交易记录 + 同步写多卡 link 表
     const newTransaction = await tx.transaction.create({
       data: {
-        id: generateId(),
+        id: await generateUniqueId(tx.transaction),
         memberId: memberId,
         customerName: customerName || null,
         summary: '项目消费',
@@ -239,7 +237,14 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
         cardId: null, // 多卡支付不关联单一卡片
         balanceSnapshot: balanceSnapshot,
         notes: `${customTransactionTime ? '[手动设置时间] ' : ''}${notes ? notes + ' | ' : ''}多卡联合支付: ${paymentDetails.map(d => `${d.cardName}¥${new Decimal(d.actualPaid).toFixed(2)}`).join(' + ')}`,
-        transactionTime: customTransactionTime ? new Date(customTransactionTime) : new Date()
+        transactionTime: customTransactionTime ? new Date(customTransactionTime) : new Date(),
+        cardLinks: {
+          create: paymentDetails.map(d => ({
+            cardId: d.cardId,
+            cardName: d.cardName,
+            amount: d.actualPaid,
+          })),
+        },
       }
     });
 
@@ -272,6 +277,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
 }
 
 export default async function (fastify, opts) {
+  applyAuth(fastify, opts);
   // 管理员和经理权限
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
@@ -407,17 +413,14 @@ export default async function (fastify, opts) {
 
         if (cardUsed) {
           const deductionAmount = actualPaidAmount.toNumber();
-          await tx.card.update({
-            where: { id: cardId },
-            data: { balance: { decrement: deductionAmount } },
-          });
+          await atomicDecrementBalance(tx, cardId, deductionAmount);
           // 记录会员所有卡的余额快照（含交易前后）
           balanceSnapshot = await getMemberBalanceSnapshot(tx, memberId, [cardId], { [cardId]: deductionAmount });
         }
 
         const newTransaction = await tx.transaction.create({
           data: {
-            id: generateId(),
+            id: await generateUniqueId(tx.transaction),
             // 不设置summary，让前端显示具体的服务项目名称
             customerName: customerName || null,
             totalAmount: totalAmount.toNumber(),
@@ -623,12 +626,9 @@ export default async function (fastify, opts) {
 
 
       const result = await prisma.$transaction(async (tx) => {
-        // 更新所有使用的卡余额
+        // 更新所有使用的卡余额（原子扣减，防止并发超扣）
         for (const detail of paymentDetails) {
-          await tx.card.update({
-            where: { id: detail.cardId },
-            data: { balance: { decrement: detail.deduction } },
-          });
+          await atomicDecrementBalance(tx, detail.cardId, detail.deduction);
         }
 
         // 获取使用的卡ID列表和扣款金额
@@ -654,7 +654,7 @@ export default async function (fastify, opts) {
 
         const newTransaction = await tx.transaction.create({
             data: {
-                id: generateId(),
+                id: await generateUniqueId(tx.transaction),
                 // 不设置summary，让前端显示具体的服务项目名称
                 customerName: customerName || null,
                 totalAmount: totalAmount.toNumber(),
@@ -693,10 +693,19 @@ export default async function (fastify, opts) {
                     quantity: serviceQuantities[serviceId],
                   })),
                 },
-                transactionTime: customTransactionTime ? new Date(customTransactionTime) : undefined, // 如果提供了自定义时间则使用，否则使用默认值
+                cardLinks: paymentDetails.length > 1 ? {
+                  create: paymentDetails.map(detail => {
+                    const card = memberCards.find(c => c.id === detail.cardId);
+                    const cardName = card.isCustomCard
+                      ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
+                      : card.cardType.name;
+                    return { cardId: detail.cardId, cardName, amount: detail.deduction };
+                  }),
+                } : undefined,
+                transactionTime: customTransactionTime ? new Date(customTransactionTime) : undefined,
             }
         });
-        
+
         if(appointmentId) {
             await tx.appointment.update({
                 where: { id: appointmentId },
@@ -1115,7 +1124,8 @@ export default async function (fastify, opts) {
           cardUsed: {
             include: { cardType: true }
           },
-          items: { include: { service: true } }
+          items: { include: { service: true } },
+          cardLinks: true
         }
       });
 
@@ -1155,10 +1165,22 @@ export default async function (fastify, opts) {
             amountRestored: amountToRestore.toNumber(),
             newBalance: new Decimal(updatedCard.balance).toNumber()
           });
-        } else if (transaction.notes && transaction.notes.includes('多卡联合支付:')) {
-          // 多卡支付：解析notes恢复余额
-          const multiCardRestored = await restoreMultiCardBalance(tx, transaction);
-          balanceRestored.push(...multiCardRestored);
+        } else if (transaction.cardLinks && transaction.cardLinks.length > 0) {
+          // 多卡支付：从 link 表恢复余额（结构化关联，无 regex）
+          for (const link of transaction.cardLinks) {
+            const amount = new Decimal(link.amount).toNumber();
+            await tx.card.update({
+              where: { id: link.cardId },
+              data: { balance: { increment: amount } },
+            });
+            const updatedCard = await tx.card.findUnique({ where: { id: link.cardId } });
+            balanceRestored.push({
+              cardId: link.cardId,
+              cardName: link.cardName,
+              amountRestored: amount,
+              newBalance: new Decimal(updatedCard.balance).toNumber(),
+            });
+          }
         }
       }
 
@@ -1336,76 +1358,3 @@ export default async function (fastify, opts) {
 
 }
 
-// 辅助函数：恢复多卡支付的余额
-async function restoreMultiCardBalance(tx, transaction) {
-  const balanceRestored = [];
-
-  // 解析notes中的多卡支付信息
-  // 格式: "多卡联合支付: 300元储值卡¥12.00 + 500元储值卡¥3.50"
-  const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
-  if (!match) return balanceRestored;
-
-  const cardsText = match[1].trim();
-  const cardParts = cardsText.split(' + ');
-
-  for (const part of cardParts) {
-    // 解析格式: "卡名¥金额"
-    const lastYenIndex = part.lastIndexOf('¥');
-    if (lastYenIndex <= 0) continue;
-
-    const cardName = part.substring(0, lastYenIndex).trim();
-    const amountStr = part.substring(lastYenIndex + 1);
-    const amount = parseFloat(amountStr);
-
-    if (isNaN(amount) || amount <= 0) continue;
-
-    // 通过会员ID和卡名查找卡片
-    const card = await findCardByNameAndMember(tx, cardName, transaction.memberId);
-
-    if (card) {
-      await tx.card.update({
-        where: { id: card.id },
-        data: { balance: { increment: amount } }
-      });
-
-      const updatedCard = await tx.card.findUnique({ where: { id: card.id } });
-      balanceRestored.push({
-        cardId: card.id,
-        cardName: cardName,
-        amountRestored: amount,
-        newBalance: new Decimal(updatedCard.balance).toNumber()
-      });
-    } else {
-      balanceRestored.push({
-        warning: `卡片"${cardName}"未找到，无法恢复 ¥${amount}`
-      });
-    }
-  }
-
-  return balanceRestored;
-}
-
-// 辅助函数：通过卡名和会员ID查找卡片
-async function findCardByNameAndMember(tx, cardName, memberId) {
-  // 处理自定义面值卡格式: "自定义面值卡(¥100.00)"
-  const customMatch = cardName.match(/自定义面值卡\(¥([\d.]+)\)/);
-  if (customMatch) {
-    const customAmount = parseFloat(customMatch[1]);
-    return tx.card.findFirst({
-      where: {
-        memberId: memberId,
-        isCustomCard: true,
-        customAmount: customAmount
-      }
-    });
-  }
-
-  // 普通卡片：通过卡类型名称查找
-  return tx.card.findFirst({
-    where: {
-      memberId: memberId,
-      cardType: { name: cardName }
-    },
-    include: { cardType: true }
-  });
-}
