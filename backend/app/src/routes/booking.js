@@ -1,7 +1,7 @@
 // backend/app/src/routes/booking.js
 
 import prisma from '../db/prisma.js';
-import { generateId } from '../utils/id.js';
+import { generateUniqueId } from '../utils/id.js';
 import { checkRateLimit, recordRequest } from '../utils/rateLimit.js';
 import { sendNotification, formatAppointmentNotification } from '../utils/wxpush.js';
 import { bookingOptionsSchema, createBookingSchema } from '../schemas/booking.js';
@@ -127,7 +127,7 @@ export default async function (fastify, opts) {
     // 创建预约
     const appointment = await prisma.appointment.create({
       data: {
-        id: generateId(),
+        id: await generateUniqueId(prisma.appointment),
         customerName: customerName || '用户',
         customerPhone,
         appointmentTime: appointmentDate,

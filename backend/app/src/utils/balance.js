@@ -6,6 +6,23 @@ import Decimal from 'decimal.js';
 // 四舍五入到两位小数
 export const roundToTwoDecimals = (value) => Math.round(value * 100) / 100;
 
+// 原子扣减卡余额。
+// 注意：Prisma 7 + adapter-mariadb 的 `update` 在并发下若初始 SELECT 看到旧 snapshot 余额>=amount，
+// 即使 UPDATE 阶段实际 0 affected rows 也不会抛 P2025（隔离级别 RR + snapshot read）。
+// 因此必须改用 updateMany + 检查 count（updateMany 直接用 ROW_COUNT 判定）。
+export async function atomicDecrementBalance(tx, cardId, amount) {
+  const result = await tx.card.updateMany({
+    where: { id: cardId, balance: { gte: amount } },
+    data: { balance: { decrement: amount } },
+  });
+  if (result.count !== 1) {
+    const err = new Error('INSUFFICIENT_BALANCE');
+    err.cardId = cardId;
+    err.amount = amount;
+    throw err;
+  }
+}
+
 // 获取会员所有卡的余额快照（用于交易记录）
 // cardDeductions: { cardId: deductionAmount } 用于计算交易前余额
 export async function getMemberBalanceSnapshot(tx, memberId, usedCardIds = [], cardDeductions = {}) {

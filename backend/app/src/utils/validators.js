@@ -3,18 +3,14 @@
  */
 
 /**
- * 验证卡片ID格式
- * @param {string} cardId - 卡片ID
- * @returns {boolean} 是否符合格式要求
+ * 验证业务 ID 格式：6-8 位小写字母或数字。
+ * 6 位为历史数据（数据库已有 5000+ 条），8 位为新生成（nanoid 加宽降低碰撞概率）。
  */
 function validateCardIdFormat(cardId) {
   if (!cardId || typeof cardId !== 'string') {
     return false;
   }
-  
-  // 验证格式：6位小写字母或数字
-  const regex = /^[0-9a-z]{6}$/;
-  return regex.test(cardId);
+  return /^[0-9a-z]{6,8}$/.test(cardId);
 }
 
 /**
