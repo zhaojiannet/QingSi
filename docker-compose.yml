@@ -5,8 +5,8 @@ services:
     container_name: qingsi_backend
     volumes:
       - ./backend/app:/app
-      - no-cache:/app/node_modules
-      - no-cache:/app/.pnpm-store
+      - backend-deps:/app/node_modules
+      - backend-pnpm-store:/app/.pnpm-store
     ports:
       - "3000:3000"
       # Prisma Studio 端口已移除，避免数据库管理界面暴露
@@ -23,15 +23,13 @@ services:
       npx prisma generate &&
       echo '=== 推送数据库结构 ===' &&
       npx prisma db push &&
-      echo '=== 修复数据库CHECK约束问题 ===' &&
-      node fix-check-constraint.js || echo '数据库约束修复完成' &&
       echo '=== 初始化管理员账户 ===' &&
       node init-admin.js || echo '管理员账户可能已存在' &&
       echo '=== 启动应用 ===' &&
       pnpm dev
       "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/configs"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/configs',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -45,8 +43,8 @@ services:
     container_name: qingsi_frontend
     volumes:
       - ./frontend/app:/app
-      - no-cache:/app/node_modules
-      - no-cache:/app/.pnpm-store
+      - frontend-deps:/app/node_modules
+      - frontend-pnpm-store:/app/.pnpm-store
     ports:
       - "5173:5173"
     restart: unless-stopped
@@ -64,4 +62,7 @@ networks:
 
 # 定义服务所需的具名卷
 volumes:
-  no-cache:
+  backend-deps:
+  backend-pnpm-store:
+  frontend-deps:
+  frontend-pnpm-store:
