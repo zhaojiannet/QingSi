@@ -119,21 +119,27 @@ WXPUSH_TOKEN=your-api-token
 
 ## 版本升级
 
-### 从旧版本升级
+> 已在运行旧版本？详细升级步骤见 [docs/UPGRADING.md](docs/UPGRADING.md)。
+> 包含 P0 安全修复、数据迁移、Refresh Token 强制下线、回滚预案等。
 
-如果你的系统已在运行，升级到新版本需要执行数据库迁移：
+### 主要破坏性变更（须按顺序处理）
 
-```bash
-# 进入后端容器
-docker exec -it qingsi_backend sh
+1. **`db push` → `migrate deploy`**：`docker-compose.yml` 启动 command 已切换；
+   开发改 schema 必须先 `prisma migrate diff` 生成迁移文件，禁止再用 `db push`
+2. **Refresh Token 改 SHA256 入库**：升级后 DB 内的旧明文 token 全部失效，
+   所有用户需重新登录一次（强制清空 `RefreshToken` 表）
+3. **后端时间响应改回 ISO**：之前的 onSend hook 把 ISO 时间转成本地化字符串，
+   已删除。前端在显示层用 `Intl.DateTimeFormat({ timeZone })` 格式化（已自动适配）
+4. **Card.id trigger 移除**：DB 层的 6 位 ID 检查 trigger 已删除，应用层
+   `validateCardIdFormat` 接受 6-8 位（历史 6 位保留 + 新生成 8 位）
 
-# 执行数据库迁移
-npx prisma db push
-```
+### 数据模型变更
 
-新增字段说明：
-- `SystemConfig.bookingCode` - 用户端预约访问码
-- `SystemConfig.bookingCodeUpdatedAt` - 访问码更新时间
+| 变更 | 详情 |
+|------|------|
+| 新增 `TransactionCardLink` 表 | 多卡支付的结构化关联（取代 `notes` 字段 regex 解析） |
+| `Card` 删除 2 个单列索引 | `balance` 和 `isCustomCard`（低基数，被复合索引覆盖） |
+| `nanoid` 长度 6 → 8 | 新生成 ID 8 位；历史 6 位 ID 完全保留可读可写 |
 
 ## 生产部署
 
