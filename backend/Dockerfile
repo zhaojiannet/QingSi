@@ -1,5 +1,5 @@
-# 使用一个现代、精简的 Node.js 基础镜像
-FROM node:24-bookworm-slim
+# 使用一个现代、精简的 Node.js 基础镜像（Debian 13 trixie + Node 24 LTS）
+FROM node:24-trixie-slim
 
 # 设置 pnpm 的环境变量
 ENV PNPM_HOME="/pnpm"
