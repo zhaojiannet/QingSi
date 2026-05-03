@@ -11,8 +11,10 @@ import {
   sleepingMembersSchema,
   pendingStatsSchema
 } from '../schemas/reports.js';
+import { applyAuth } from '../utils/applyAuth.js';
 
 export default async function (fastify, opts) {
+  applyAuth(fastify, opts);
   // --- 营业报表 ---
   fastify.get('/business', { schema: businessReportSchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;

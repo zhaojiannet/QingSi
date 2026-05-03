@@ -1,12 +1,14 @@
 // backend/app/src/routes/cards.js
 
 import prisma from '../db/prisma.js';
-import { generateId } from '../utils/id.js';
+import { generateId, generateUniqueId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import { issueWithTransactionSchema } from '../schemas/cards.js';
 import { idParam } from '../schemas/common.js';
+import { applyAuth } from '../utils/applyAuth.js';
 
 export default async function (fastify, opts) {
+  applyAuth(fastify, opts);
   // 管理员和经理权限
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
@@ -42,7 +44,7 @@ export default async function (fastify, opts) {
         
         const newCard = await tx.card.create({
           data: {
-            id: generateId(),
+            id: await generateUniqueId(tx.card),
             member: { connect: { id: memberId } },
             cardType: { connect: { id: cardTypeId } },
             balance: cardBalance,
@@ -58,7 +60,7 @@ export default async function (fastify, opts) {
         // 创建交易记录
         await tx.transaction.create({
           data: {
-            id: generateId(),
+            id: await generateUniqueId(tx.transaction),
             member: { connect: { id: memberId } },
             ...(staffId && { staff: { connect: { id: staffId } } }), 
             summary: `办理【${cardName} ${discountDisplay}】`,

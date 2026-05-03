@@ -29,6 +29,7 @@
     "fastify": "^5.8.5",
     "jsonwebtoken": "^9.0.3",
     "nanoid": "^5.1.11",
+    "pino": "^10.3.1",
     "svg-captcha": "^1.4.0",
     "xlsx": "^0.18.5"
   },
