@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-table :data="state.data" v-loading="state.loading" stripe style="width: 100%">
+    <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip style="width: 100%">
       <el-table-column type="index" label="排名" width="80" />
       <el-table-column prop="serviceName" label="项目名称" />
       <el-table-column prop="totalSales" label="销售总额(元)" align="right" sortable />

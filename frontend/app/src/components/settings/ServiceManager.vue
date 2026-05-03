@@ -14,12 +14,10 @@
           <span v-else>{{ row.sortOrder }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="无折扣" width="120" align="center">
+      <el-table-column label="无折扣" width="100" align="center">
         <template #default="{ row }">
-          <el-tag v-if="row.noDiscount" type="danger" size="small" class="no-discount-tag">
-            <el-icon><Warning /></el-icon> 是
-          </el-tag>
-          <span v-else class="text-muted">否</span>
+          <el-tag v-if="row.noDiscount" type="warning" size="small" effect="plain">是</el-tag>
+          <el-text v-else type="info" size="small">否</el-text>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">

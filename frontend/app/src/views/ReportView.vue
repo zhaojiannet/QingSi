@@ -232,11 +232,6 @@ onMounted(async () => {
   padding-top: 20px;
 }
 .report-tabs :deep(th .cell) { white-space: nowrap; }
-.report-tabs :deep(td .cell) {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .date-filter-form {
   display: flex;

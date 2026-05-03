@@ -5,7 +5,7 @@
       <el-empty v-else description="暂无数据" />
     </div>
     <div class="table-container">
-      <el-table :data="state.data" stripe>
+      <el-table :data="state.data" stripe show-overflow-tooltip>
         <el-table-column prop="name" label="支付方式" />
         <el-table-column prop="value" label="金额 (元)" align="right" />
         <el-table-column prop="count" label="笔数" align="center" />

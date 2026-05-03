@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="tip">超过90天未产生任何消费的活跃会员</div>
-    <el-table :data="state.data" v-loading="state.loading" stripe style="width: 100%">
+    <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip style="width: 100%">
       <el-table-column prop="name" label="姓名">
         <template #default="{ row }">
           <el-tooltip

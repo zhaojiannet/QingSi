@@ -11,7 +11,7 @@
         <el-statistic title="充值 (元)" :value="Number(businessReport.data.totalRecharge) || 0" :precision="2" />
       </el-col>
       <el-col :span="5" :xs="12">
-        <el-statistic title="总客数" :value="businessReport.data.totalCustomers" />
+        <el-statistic title="总客数 (人)" :value="businessReport.data.totalCustomers" />
       </el-col>
       <el-col :span="4" :xs="12">
         <el-statistic title="客单价 (元)" :value="Number(businessReport.data.averageOrderValue) || 0" :precision="2" />
@@ -64,6 +64,7 @@
           :data="transactionList.data"
           v-loading="transactionList.loading"
           stripe
+          show-overflow-tooltip
           style="width: 100%"
           :row-key="row => row.id"
           :class="{ 'auto-width': visibleColumns.length > 0 }"
@@ -81,14 +82,14 @@
             </template>
           </el-table-column>
 
-          <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="130">
+          <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="210">
             <template #default="{ row }">
               <div v-if="row.member && fmt.isMultiCardPayment(row)" class="multi-card-list">
                 <div v-for="cardInfo in fmt.getMultiCardList(row)" :key="cardInfo.name" class="card-item">
-                  <el-tag type="warning" size="small" class="card-tag">{{ cardInfo.name }}</el-tag>
+                  <el-tag type="warning" size="small">{{ cardInfo.name }}</el-tag>
                 </div>
               </div>
-              <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small" class="card-tag">
+              <el-tag v-else-if="row.member && row.cardUsed" type="primary" size="small">
                 {{ row.cardDisplayName || row.cardUsed.cardType?.name || '会员卡' }}
               </el-tag>
               <span v-else>-</span>
@@ -461,11 +462,6 @@ onUnmounted(() => {
 .transaction-table-container :deep(th .cell) {
   white-space: nowrap;
 }
-.transaction-table-container :deep(td .cell) {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .transaction-table-container :deep(.el-table__cell) {
   border: none;
 }
@@ -547,11 +543,6 @@ onUnmounted(() => {
   color: #67c23a;
 }
 .service-items-text {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: help;
 }
 .manual-time {
@@ -577,13 +568,6 @@ onUnmounted(() => {
   color: #909399;
   line-height: 1.2;
 }
-.card-tag {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
-}
-
 .has-snapshot {
   cursor: help;
   text-decoration: underline;

@@ -143,7 +143,7 @@
         <h3 class="panel-title-right">消费详情</h3>
 
         <div v-if="cartItems.length === 0" class="empty-cart">
-          <el-empty description="请从左侧选择服务项目" />
+          <el-empty :image-size="100" description="先选择会员（可跳过）和服务项目，结算汇总会出现在这里" />
         </div>
 
         <div v-else>

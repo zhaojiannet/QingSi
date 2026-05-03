@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-table :data="state.data" v-loading="state.loading" stripe style="width: 100%">
+    <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip style="width: 100%">
       <el-table-column type="index" label="排名" width="80" />
       <el-table-column prop="memberName" label="会员姓名">
         <template #default="{ row }">

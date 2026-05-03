@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="tip">未来15天内过生日的会员</div>
-    <el-table :data="state.data" v-loading="state.loading" stripe max-height="600">
+    <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip max-height="600">
       <el-table-column prop="name" label="姓名">
         <template #default="{ row }">
           <el-tooltip

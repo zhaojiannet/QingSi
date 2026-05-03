@@ -32,42 +32,43 @@
         <!-- 1. 姓名 -->
         <el-table-column prop="name" label="姓名" width="100" />
         
-        <!-- 2. 性别 -->
-        <el-table-column prop="gender" label="性别" width="80">
+        <!-- 2. 性别（仅在已知男/女时显示 EP tag，未知不占视觉） -->
+        <el-table-column label="性别" width="70" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.gender === 'MALE'" type="primary" size="small">男</el-tag>
-            <el-tag v-else-if="row.gender === 'FEMALE'" type="danger" size="small">女</el-tag>
-            <el-tag v-else type="info" size="small">未知</el-tag>
-          </template>
-        </el-table-column>
-        
-        <!-- 3. 手机号 -->
-        <el-table-column prop="phone" label="手机号" width="150" />
-        
-        <!-- 4. 会员卡 -->
-        <el-table-column label="会员卡" width="120" align="center">
-          <template #default="{ row }">
-            <div @click.stop="handleCardManagement(row)" class="card-cell-content">
-              <div v-if="getCardStats(row).totalCount > 0" class="card-display">
-                <el-icon class="card-icon"><CreditCard /></el-icon>
-                <el-tag type="warning" size="small" class="card-tag">
-                  有卡 <span class="active-count">{{ getCardStats(row).activeCount }}</span> / <span class="total-count">{{ getCardStats(row).totalCount }}</span>
-                </el-tag>
-              </div>
-              <div v-else class="card-display">
-                <el-icon class="card-icon"><CreditCard /></el-icon>
-                <el-tag type="info" size="small" class="card-tag">
-                  无卡
-                </el-tag>
-              </div>
-            </div>
+            <el-tag v-if="row.gender === 'MALE'" type="primary" size="small" effect="plain">男</el-tag>
+            <el-tag v-else-if="row.gender === 'FEMALE'" type="danger" size="small" effect="plain">女</el-tag>
+            <span v-else></span>
           </template>
         </el-table-column>
 
-        <!-- 5. 状态 -->
-        <el-table-column prop="status" label="状态" width="100">
+        <!-- 3. 手机号 -->
+        <el-table-column prop="phone" label="手机号" width="150" />
+
+        <!-- 4. 会员卡（去掉"有卡"前缀，icon + 数字） -->
+        <el-table-column label="会员卡" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="memberStatusTagType(row.status)" size="small">{{ memberStatusText(row.status) }}</el-tag>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click.stop="handleCardManagement(row)"
+              :icon="CreditCard"
+            >
+              <template v-if="getCardStats(row).totalCount > 0">
+                {{ getCardStats(row).activeCount }} / {{ getCardStats(row).totalCount }}
+              </template>
+              <el-text v-else type="info" size="small">无卡</el-text>
+            </el-button>
+          </template>
+        </el-table-column>
+
+        <!-- 5. 状态（仅在异常时显示 tag，正常态用次级文字） -->
+        <el-table-column prop="status" label="状态" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.status !== 'ACTIVE'" :type="memberStatusTagType(row.status)" size="small">
+              {{ memberStatusText(row.status) }}
+            </el-tag>
+            <el-text v-else type="info" size="small">正常</el-text>
           </template>
         </el-table-column>
         
@@ -306,31 +307,6 @@ const getCardStats = (member) => {
 }
 .table-container :deep(.el-table .cell) {
   overflow: visible;
-}
-.card-cell-content {
-  cursor: pointer;
-}
-.card-display {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: center;
-}
-.card-tag {
-  font-size: 12px;
-  border-radius: 4px;
-}
-.card-icon {
-  font-size: 16px;
-  color: #E6A23C;
-}
-.active-count {
-  color: inherit;
-  font-weight: bold;
-}
-.total-count {
-  color: inherit;
-  font-weight: normal;
 }
 
 /* 余额和挂账列样式 */

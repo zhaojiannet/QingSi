@@ -32,7 +32,7 @@
 
     <!-- 表格区域 -->
     <div class="table-container">
-      <el-table :data="appointments" v-loading="loading" stripe size="large" :default-sort="{prop: 'appointmentTime', order: 'ascending'}">
+      <el-table :data="appointments" v-loading="loading" stripe size="large" :default-sort="{prop: 'appointmentTime', order: 'ascending'}" empty-text="该时段没有预约，点击右上「+ 新增预约」开始登记">
         <el-table-column label="预约日期" prop="appointmentTime" width="140" sortable>
           <template #default="{ row }">
             {{ formatDateInAppTimeZone(row.appointmentTime) }}

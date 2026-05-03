@@ -20,12 +20,12 @@
     </div>
 
     <div class="transaction-table-container">
-      <el-table :data="transactions" stripe class="today-table" :class="{ 'auto-width': visibleColumns.length > 0 }" style="width: 100%">
+      <el-table :data="transactions" stripe show-overflow-tooltip class="today-table" :class="{ 'auto-width': visibleColumns.length > 0 }" style="width: 100%">
         <el-table-column prop="member.name" label="姓名" width="90">
           <template #default="{ row }">{{ row.member?.name || row.customerName || '非会员用户' }}</template>
         </el-table-column>
 
-        <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="130">
+        <el-table-column v-if="visibleColumns.includes('card')" label="会员卡" width="210">
           <template #default="{ row }">
             <div v-if="row.member && fmt.isMultiCardPayment(row)" class="multi-card-list">
               <div v-for="cardInfo in fmt.getMultiCardList(row)" :key="cardInfo.name" class="card-item">
@@ -242,11 +242,6 @@ const canVoidTransaction = (transaction) => {
 .today-table :deep(thead) { color: #606266; font-weight: 500; }
 .today-table :deep(th) { background-color: #fafafa !important; }
 .today-table :deep(th .cell) { white-space: nowrap; }
-.today-table :deep(td .cell) {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .today-table.auto-width :deep(table) {
   table-layout: auto !important;
 }
@@ -270,11 +265,6 @@ const canVoidTransaction = (transaction) => {
 .pending-record { color: #f56c6c; }
 .clear-record { color: #67c23a; }
 .service-items-text {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: help;
 }
 .manual-time {

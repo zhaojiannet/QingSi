@@ -18,7 +18,7 @@
       </el-row>
     </div>
 
-    <el-table :data="state.data" v-loading="state.loading" stripe style="width: 100%">
+    <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip style="width: 100%">
       <el-table-column prop="name" label="会员姓名" width="120">
         <template #default="{ row }">
           <el-tooltip
