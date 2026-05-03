@@ -23,11 +23,12 @@ export function formatAmount(amount) {
 
 /**
  * 格式化金额显示并添加货币符号
+ * 项目约定：¥ 与数字之间无空格（与组件内 `¥{{ formatAmount(x) }}` 拼写一致）。
  * @param {number|string|Decimal} amount - 金额数值
- * @returns {string} 格式化后的金额字符串，如 "¥ 123.45"
+ * @returns {string} 格式化后的金额字符串，如 "¥123.45"
  */
 export function formatCurrency(amount) {
-  return `¥ ${formatAmount(amount)}`;
+  return `¥${formatAmount(amount)}`;
 }
 
 /**

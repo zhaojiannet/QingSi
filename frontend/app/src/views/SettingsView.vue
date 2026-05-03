@@ -6,24 +6,24 @@
 
     <!-- 核心修复：移除所有 v-if，改为通过 CSS class 控制显示 -->
     <el-tabs v-model="activeTab" class="settings-tabs">
-      <el-tab-pane 
-        label="服务项目管理" 
+      <el-tab-pane
+        label="服务项目"
         name="services"
         :class="{ 'is-hidden': !canAccessServiceManagement }"
       >
         <ServiceManager />
       </el-tab-pane>
-      
-      <el-tab-pane 
-        label="会员卡类型管理" 
+
+      <el-tab-pane
+        label="会员卡类型"
         name="cardTypes"
         :class="{ 'is-hidden': !canAccessCardTypeManagement }"
       >
         <CardTypeManager />
       </el-tab-pane>
-      
-      <el-tab-pane 
-        label="员工管理" 
+
+      <el-tab-pane
+        label="员工"
         name="staff"
         :class="{ 'is-hidden': !canAccessStaffManagement }"
       >
