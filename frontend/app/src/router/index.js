@@ -65,43 +65,27 @@ const router = createRouter({
   routes,
 });
 
-// 升级后的全局前置守卫
-router.beforeEach((to, from, next) => {
+// vue-router 5 风格：return 值代替 next() 回调
+router.beforeEach((to) => {
   NProgress.start();
   const userStore = useUserStore();
   const isLoggedIn = userStore.isLoggedIn;
   const userRole = userStore.userRole;
 
   if (to.meta.isPublic) {
-    // 如果是公共页面
-    if (isLoggedIn && to.name === 'login') {
-      // 已登录用户访问登录页，重定向到首页
-      next({ path: '/' });
-    } else {
-      next();
-    }
-  } else {
-    // 如果是需要认证的页面
-    if (!isLoggedIn) {
-      // 未登录，重定向到登录页
-      next({ name: 'login', query: { redirect: to.fullPath } });
-    } else {
-      // 已登录，检查角色权限
-      if (to.meta.roles) {
-        // 如果路由需要特定角色
-        if (to.meta.roles.includes(userRole)) {
-          // 角色匹配，放行
-          next();
-        } else {
-          // 角色不匹配，重定向到404页面（或一个专门的403无权限页面）
-          next({ name: 'NotFound', query: { unauthorized: '1' } });
-        }
-      } else {
-        // 如果路由不需要特定角色，直接放行
-        next();
-      }
-    }
+    if (isLoggedIn && to.name === 'login') return { path: '/' };
+    return true;
   }
+
+  if (!isLoggedIn) {
+    return { name: 'login', query: { redirect: to.fullPath } };
+  }
+
+  if (to.meta.roles && !to.meta.roles.includes(userRole)) {
+    return { name: 'NotFound', query: { unauthorized: '1' } };
+  }
+
+  return true;
 });
 
 router.afterEach(() => {
