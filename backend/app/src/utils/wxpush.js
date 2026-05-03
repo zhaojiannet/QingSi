@@ -10,8 +10,12 @@ export async function sendNotification(data) {
     return { success: false, reason: 'not_configured' };
   }
 
-  // 打印发送的数据用于调试
-  console.log('[WxPush] Sending data:', JSON.stringify(data, null, 2));
+  // 仅在 NODE_ENV=development 打印完整数据用于调试；生产环境只标记字段名避免 PII 写入日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[WxPush] Sending data:', JSON.stringify(data, null, 2));
+  } else {
+    console.log('[WxPush] Sending notification, fields:', Object.keys(data || {}).join(','));
+  }
 
   try {
     const response = await fetch(WXPUSH_URL, {
