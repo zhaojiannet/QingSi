@@ -13,7 +13,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.33.2",
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
@@ -21,19 +21,19 @@
     "@fastify/jwt": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/session": "^11.1.1",
-    "@prisma/adapter-mariadb": "^7.3.0",
-    "@prisma/client": "7.3.0",
+    "@prisma/adapter-mariadb": "^7.8.0",
+    "@prisma/client": "7.8.0",
     "bcryptjs": "^3.0.3",
     "decimal.js": "^10.6.0",
-    "dotenv": "^17.2.3",
-    "fastify": "^5.7.2",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
     "jsonwebtoken": "^9.0.3",
-    "nanoid": "^5.1.6",
+    "nanoid": "^5.1.11",
     "svg-captcha": "^1.4.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "prisma": "7.3.0",
+    "prisma": "7.8.0",
     "tsx": "^4.21.0"
   }
 }
