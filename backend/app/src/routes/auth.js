@@ -4,6 +4,7 @@ import prisma from '../db/prisma.js';
 import bcrypt from 'bcryptjs';
 import svgCaptcha from 'svg-captcha';
 import { randomBytes } from 'crypto';
+import { loginSchema, refreshSchema, logoutSchema } from '../schemas/auth.js';
 
 export default async function (fastify, opts) {
 
@@ -20,19 +21,16 @@ export default async function (fastify, opts) {
     reply.send(captcha.data);
   });
   
-  fastify.post('/login', async (request, reply) => {
+  fastify.post('/login', { schema: loginSchema }, async (request, reply) => {
     const { username, password, captchaText, trustDevice } = request.body;
 
     const config = await prisma.systemConfig.findUnique({ where: { id: 1 } });
     if (config?.enableLoginCaptcha) {
       if (!captchaText || !request.session.captcha || captchaText.toLowerCase() !== request.session.captcha) {
-        request.session.captcha = null; 
+        request.session.captcha = null;
         return reply.code(400).send({ message: '验证码不正确' });
       }
       request.session.captcha = null;
-    }
-    if (!username || !password) {
-      return reply.code(400).send({ message: '用户名和密码不能为空' });
     }
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
@@ -63,11 +61,8 @@ export default async function (fastify, opts) {
     return { accessToken, refreshToken: refreshTokenValue };
   });
   
-  fastify.post('/refresh', async (request, reply) => {
+  fastify.post('/refresh', { schema: refreshSchema }, async (request, reply) => {
     const { refreshToken } = request.body;
-    if (!refreshToken) {
-      return reply.code(400).send({ message: '缺少刷新令牌' });
-    }
 
     const storedToken = await prisma.refreshToken.findUnique({
       where: { token: refreshToken },
@@ -90,7 +85,7 @@ export default async function (fastify, opts) {
     return { accessToken: newAccessToken };
   });
 
-  fastify.post('/logout', async (request, reply) => {
+  fastify.post('/logout', { schema: logoutSchema }, async (request, reply) => {
     const { refreshToken } = request.body;
     if (refreshToken) {
       await prisma.refreshToken.deleteMany({

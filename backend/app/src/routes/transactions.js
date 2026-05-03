@@ -5,6 +5,13 @@ import { generateId } from '../utils/id.js';
 import Decimal from 'decimal.js';
 import { getMemberBalanceSnapshot } from '../utils/balance.js';
 import { isValidId } from '../utils/validation.js';
+import {
+  createTransactionSchema,
+  comboCheckoutSchema,
+  comboPreviewSchema,
+  voidTransactionSchema,
+  transactionsQuerySchema
+} from '../schemas/transactions.js';
 
 // 智能卡片支付处理函数
 async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
@@ -270,7 +277,7 @@ export default async function (fastify, opts) {
   const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
   // --- 创建一笔新消费 (手动选卡或非会员) ---
-  fastify.post('/', async (request, reply) => {
+  fastify.post('/', { schema: createTransactionSchema }, async (request, reply) => {
     const {
       memberId,
       customerName,
@@ -282,12 +289,9 @@ export default async function (fastify, opts) {
       manualPriceAdjustment,
       customTransactionTime,
     } = request.body;
-    
-    let cardId = request.body.cardId; // 使用let以便后续可以重新赋值
 
-    if (!serviceIds || !serviceIds.length || !paymentMethod) {
-      return reply.code(400).send({ message: '缺少必要参数：服务项目、支付方式' });
-    }
+    let cardId = request.body.cardId;
+
     if (paymentMethod === 'MEMBER_CARD' && !memberId) {
       return reply.code(400).send({ message: '使用会员卡支付时，必须提供会员ID' });
     }
@@ -476,12 +480,8 @@ export default async function (fastify, opts) {
   });
 
   // --- 组合支付结算接口 ---
-  fastify.post('/combo-checkout', async (request, reply) => {
+  fastify.post('/combo-checkout', { schema: comboCheckoutSchema }, async (request, reply) => {
     const { memberId, customerName, serviceIds, staffId, notes, appointmentId, manualPriceAdjustment, customTransactionTime } = request.body;
-
-    if (!memberId || !serviceIds || !serviceIds.length) {
-      return reply.code(400).send({ message: '缺少必要参数：会员、服务项目' });
-    }
 
 
       const memberCards = await prisma.card.findMany({
@@ -724,11 +724,8 @@ export default async function (fastify, opts) {
   });
 
   // --- 组合支付“试算”接口 ---
-  fastify.post('/combo-preview', async (request, reply) => {
+  fastify.post('/combo-preview', { schema: comboPreviewSchema }, async (request, reply) => {
     const { memberId, serviceIds } = request.body;
-    if (!memberId || !serviceIds || !serviceIds.length) {
-      return reply.code(400).send({ message: '缺少必要参数' });
-    }
 
     const memberCards = await prisma.card.findMany({
         where: {
@@ -885,7 +882,7 @@ export default async function (fastify, opts) {
 
 
     // --- 优化点2: 支持服务器端搜索和分页的流水查询接口 ---
-  fastify.get('/', async (request, reply) => {
+  fastify.get('/', { schema: transactionsQuerySchema }, async (request, reply) => {
     const { 
       startDate, 
       endDate, 
@@ -1076,18 +1073,14 @@ export default async function (fastify, opts) {
 
   // --- 撤销交易接口 ---
   fastify.post('/:transactionId/void', {
-    onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])]
+    onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])],
+    schema: voidTransactionSchema
   }, async (request, reply) => {
     const { transactionId } = request.params;
-    const { reason } = request.body || {};
+    const { reason } = request.body;
     const userId = request.user.id;
 
-    // 1. 验证撤销原因必填（在事务外先验证，减少事务时间）
-    if (!reason || !reason.trim()) {
-      return reply.code(400).send({ message: '请填写撤销原因' });
-    }
-
-    // 2. 获取操作人信息（事务外查询，减少事务时间）
+    // 获取操作人信息（事务外查询，减少事务时间）
     const operator = await prisma.user.findUnique({
       where: { id: userId },
       include: { staff: { select: { name: true } } }

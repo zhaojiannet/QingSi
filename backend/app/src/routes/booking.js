@@ -4,6 +4,7 @@ import prisma from '../db/prisma.js';
 import { generateId } from '../utils/id.js';
 import { checkRateLimit, recordRequest } from '../utils/rateLimit.js';
 import { sendNotification, formatAppointmentNotification } from '../utils/wxpush.js';
+import { bookingOptionsSchema, createBookingSchema } from '../schemas/booking.js';
 
 async function verifyBookingCode(code) {
   if (!code || code.length < 2) return false;
@@ -19,7 +20,7 @@ async function verifyBookingCode(code) {
 export default async function (fastify, opts) {
 
   // 获取预约选项（服务、员工、可用时段）
-  fastify.get('/options', async (request, reply) => {
+  fastify.get('/options', { schema: bookingOptionsSchema }, async (request, reply) => {
     const { code } = request.query;
 
     if (!await verifyBookingCode(code)) {
@@ -43,7 +44,7 @@ export default async function (fastify, opts) {
   });
 
   // 创建预约
-  fastify.post('/', async (request, reply) => {
+  fastify.post('/', { schema: createBookingSchema }, async (request, reply) => {
     const { code } = request.query;
 
     if (!await verifyBookingCode(code)) {
@@ -51,16 +52,6 @@ export default async function (fastify, opts) {
     }
 
     const { customerName, customerPhone, appointmentTime, serviceIds, assignedStaffId, notes } = request.body;
-
-    // 输入验证
-    if (!customerPhone || !appointmentTime || !serviceIds?.length) {
-      return reply.code(400).send({ error: '请填写完整信息' });
-    }
-
-    // 手机号格式验证
-    if (!/^1[3-9]\d{9}$/.test(customerPhone)) {
-      return reply.code(400).send({ error: '手机号格式不正确' });
-    }
 
     // 频率限制检查 (IP + 手机号)
     const clientIp = request.ip || 'unknown';
