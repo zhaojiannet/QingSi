@@ -105,16 +105,16 @@
       <el-form :model="clearSingleDialog" label-width="100px">
         <el-form-item label="支付方式">
           <el-radio-group v-model="clearSingleDialog.paymentMethod">
-            <el-radio value="MEMBER_CARD" :disabled="!hasAvailableCards">会员卡支付</el-radio>
-            <el-radio value="CASH">现金结清</el-radio>
+            <el-radio :value="PAYMENT_METHODS.MEMBER_CARD" :disabled="!hasAvailableCards">会员卡支付</el-radio>
+            <el-radio :value="PAYMENT_METHODS.CASH">现金结清</el-radio>
           </el-radio-group>
-          <div v-if="!hasAvailableCards && clearSingleDialog.paymentMethod === 'MEMBER_CARD'" class="no-cards-tip">
+          <div v-if="!hasAvailableCards && clearSingleDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD" class="no-cards-tip">
             该会员没有可用的会员卡
           </div>
         </el-form-item>
         <el-form-item
           label="选择会员卡"
-          v-if="clearSingleDialog.paymentMethod === 'MEMBER_CARD' && hasAvailableCards"
+          v-if="clearSingleDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && hasAvailableCards"
         >
           <el-select v-model="clearSingleDialog.cardId" placeholder="请选择会员卡" @change="validateCardBalance" style="width: 100%">
             <el-option
@@ -164,16 +164,16 @@
       <el-form :model="clearAllDialog" label-width="100px">
         <el-form-item label="支付方式">
           <el-radio-group v-model="clearAllDialog.paymentMethod">
-            <el-radio value="MEMBER_CARD" :disabled="!hasAvailableCards">会员卡支付</el-radio>
-            <el-radio value="CASH">现金结清</el-radio>
+            <el-radio :value="PAYMENT_METHODS.MEMBER_CARD" :disabled="!hasAvailableCards">会员卡支付</el-radio>
+            <el-radio :value="PAYMENT_METHODS.CASH">现金结清</el-radio>
           </el-radio-group>
-          <div v-if="!hasAvailableCards && clearAllDialog.paymentMethod === 'MEMBER_CARD'" class="no-cards-tip">
+          <div v-if="!hasAvailableCards && clearAllDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD" class="no-cards-tip">
             该会员没有可用的会员卡
           </div>
         </el-form-item>
         <el-form-item
           label="选择会员卡"
-          v-if="clearAllDialog.paymentMethod === 'MEMBER_CARD' && hasAvailableCards"
+          v-if="clearAllDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && hasAvailableCards"
         >
           <el-select v-model="clearAllDialog.cardId" placeholder="请选择会员卡" @change="validateAllCardBalance" style="width: 100%">
             <el-option
@@ -223,6 +223,7 @@ import { addPendingPayment, deletePendingPayment, clearAllPendingPayments } from
 import { formatAmount, toDecimal } from '@/utils/currency.js';
 import { formatDateInAppTimeZone } from '@/utils/date.js';
 import { getCardDisplayName } from '@/utils/formatters.js';
+import { PAYMENT_METHODS } from '@/constants/payment.js';
 
 const props = defineProps({
   memberId: { type: String, required: true },
@@ -246,14 +247,14 @@ const clearSingleDialog = reactive({
   visible: false,
   pendingId: null,
   amount: 0,
-  paymentMethod: 'CASH',
+  paymentMethod: PAYMENT_METHODS.CASH,
   cardId: null,
   loading: false
 });
 
 const clearAllDialog = reactive({
   visible: false,
-  paymentMethod: 'CASH',
+  paymentMethod: PAYMENT_METHODS.CASH,
   cardId: null,
   loading: false
 });
@@ -266,26 +267,26 @@ const totalPendingAmount = computed(() =>
 );
 
 const isSingleBalanceSufficient = computed(() => {
-  if (clearSingleDialog.paymentMethod !== 'MEMBER_CARD') return true;
+  if (clearSingleDialog.paymentMethod !== PAYMENT_METHODS.MEMBER_CARD) return true;
   if (!clearSingleDialog.cardId) return false;
   const card = props.availableCards.find(c => c.id === clearSingleDialog.cardId);
   return card && parseFloat(card.balance) >= clearSingleDialog.amount;
 });
 
 const isAllBalanceSufficient = computed(() => {
-  if (clearAllDialog.paymentMethod !== 'MEMBER_CARD') return true;
+  if (clearAllDialog.paymentMethod !== PAYMENT_METHODS.MEMBER_CARD) return true;
   if (!clearAllDialog.cardId) return false;
   const card = props.availableCards.find(c => c.id === clearAllDialog.cardId);
   return card && parseFloat(card.balance) >= totalPendingAmount.value.toNumber();
 });
 
 const canConfirmSingleClear = computed(() => {
-  if (clearSingleDialog.paymentMethod === 'CASH') return true;
+  if (clearSingleDialog.paymentMethod === PAYMENT_METHODS.CASH) return true;
   return isSingleBalanceSufficient.value;
 });
 
 const canConfirmAllClear = computed(() => {
-  if (clearAllDialog.paymentMethod === 'CASH') return true;
+  if (clearAllDialog.paymentMethod === PAYMENT_METHODS.CASH) return true;
   return isAllBalanceSufficient.value;
 });
 
@@ -350,10 +351,10 @@ const openClearSingleDialog = (pendingId, amount) => {
 
   const optimalCard = getOptimalPaymentCard(amount);
   if (optimalCard) {
-    clearSingleDialog.paymentMethod = 'MEMBER_CARD';
+    clearSingleDialog.paymentMethod = PAYMENT_METHODS.MEMBER_CARD;
     clearSingleDialog.cardId = optimalCard.id;
   } else {
-    clearSingleDialog.paymentMethod = 'CASH';
+    clearSingleDialog.paymentMethod = PAYMENT_METHODS.CASH;
     clearSingleDialog.cardId = null;
   }
   clearSingleDialog.visible = true;
@@ -364,7 +365,7 @@ const confirmClearSingle = async () => {
   clearSingleDialog.loading = true;
   try {
     const paymentData = { paymentMethod: clearSingleDialog.paymentMethod };
-    if (clearSingleDialog.paymentMethod === 'MEMBER_CARD') {
+    if (clearSingleDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD) {
       if (!clearSingleDialog.cardId) {
         ElMessage.error('请选择会员卡');
         return;
@@ -388,10 +389,10 @@ const openClearAllDialog = () => {
   const totalAmount = totalPendingAmount.value.toNumber();
   const optimalCard = getOptimalPaymentCard(totalAmount);
   if (optimalCard) {
-    clearAllDialog.paymentMethod = 'MEMBER_CARD';
+    clearAllDialog.paymentMethod = PAYMENT_METHODS.MEMBER_CARD;
     clearAllDialog.cardId = optimalCard.id;
   } else {
-    clearAllDialog.paymentMethod = 'CASH';
+    clearAllDialog.paymentMethod = PAYMENT_METHODS.CASH;
     clearAllDialog.cardId = null;
   }
   clearAllDialog.visible = true;
@@ -402,7 +403,7 @@ const confirmClearAll = async () => {
   clearAllDialog.loading = true;
   try {
     const paymentData = { paymentMethod: clearAllDialog.paymentMethod };
-    if (clearAllDialog.paymentMethod === 'MEMBER_CARD') {
+    if (clearAllDialog.paymentMethod === PAYMENT_METHODS.MEMBER_CARD) {
       if (!clearAllDialog.cardId) {
         ElMessage.error('请选择会员卡');
         return;

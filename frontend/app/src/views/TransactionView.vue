@@ -50,8 +50,23 @@
               size="large"
               style="width: 100%"
               @change="handleServiceChange"
-              class="service-select-with-badge"
             >
+              <template #tag>
+                <el-tag
+                  v-for="sid in uniqueServiceIds"
+                  :key="sid"
+                  closable
+                  type="info"
+                  disable-transitions
+                  class="service-tag"
+                  @close="removeServiceId(sid)"
+                >
+                  {{ serviceMap.get(sid)?.name }}
+                  <span v-if="serviceQuantities[sid] > 1" class="service-tag-qty">
+                    ×{{ serviceQuantities[sid] }}
+                  </span>
+                </el-tag>
+              </template>
               <el-option
                 v-for="item in sortedServiceList"
                 :key="item.id"
@@ -74,23 +89,25 @@
 
           <el-form-item label="支付方式">
             <el-radio-group v-model="form.paymentMethod" size="large">
-              <el-radio-button value="CASH">现金</el-radio-button>
-              <el-radio-button value="WECHAT_PAY">微信</el-radio-button>
-              <el-radio-button value="ALIPAY">支付宝</el-radio-button>
-              <el-radio-button value="DOUYIN">抖音</el-radio-button>
-              <el-radio-button value="MEITUAN">美团</el-radio-button>
-              <el-radio-button value="MEMBER_CARD" :disabled="!form.memberId">会员卡</el-radio-button>
+              <el-radio-button
+                v-for="opt in CHECKOUT_PAYMENT_OPTIONS"
+                :key="opt.value"
+                :value="opt.value"
+                :disabled="opt.requireMember && !form.memberId"
+              >
+                {{ opt.label }}
+              </el-radio-button>
             </el-radio-group>
           </el-form-item>
 
-          <el-form-item v-show="form.paymentMethod === 'MEMBER_CARD'" label="会员卡支付模式">
+          <el-form-item v-show="form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD" label="会员卡支付模式">
             <el-radio-group v-model="cardPaymentMode" size="default">
               <el-radio-button value="auto">自动选择</el-radio-button>
               <el-radio-button value="manual">手动选择</el-radio-button>
             </el-radio-group>
           </el-form-item>
 
-          <el-form-item v-show="form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode === 'manual'" label="选择会员卡">
+          <el-form-item v-show="form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && cardPaymentMode === 'manual'" label="选择会员卡">
             <el-select v-model="form.cardId" placeholder="请选择会员卡" size="large" style="width: 100%">
               <el-option
                 v-for="card in availableCards"
@@ -135,7 +152,7 @@
               <template #default="{ row }">
                 <div class="service-item">
                   <span class="service-name">{{ row.name }}</span>
-                  <div class="service-discount-info" v-if="form.paymentMethod === 'MEMBER_CARD' && selectedMember">
+                  <div class="service-discount-info" v-if="form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && selectedMember">
                     <el-tag v-if="row.noDiscount" type="danger" size="small" class="discount-tag">
                       <el-icon><Warning /></el-icon> 无折扣 {{ formatCurrency(row.standardPrice) }}
                     </el-tag>
@@ -184,7 +201,7 @@
             </div>
           </div>
 
-          <div v-if="form.paymentMethod === 'MEMBER_CARD' && paymentPlan.paymentDetails.length > 0" class="payment-plan-preview">
+          <div v-if="form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && paymentPlan.paymentDetails.length > 0" class="payment-plan-preview">
             <el-divider content-position="left">支付方案预览</el-divider>
             <div v-for="(detail, index) in paymentPlan.paymentDetails" :key="index" class="plan-card-detail">
               <div class="plan-card-header">
@@ -329,7 +346,7 @@
           <span class="label">消费金额：</span>
           <span class="amount">¥{{ formatAmount(voidDialog.transaction.actualPaidAmount) }}</span>
         </div>
-        <div class="info-row" v-if="voidDialog.transaction.paymentMethod === 'MEMBER_CARD'">
+        <div class="info-row" v-if="voidDialog.transaction.paymentMethod === PAYMENT_METHODS.MEMBER_CARD">
           <span class="label">支付方式：</span>
           <span style="color: #e6a23c;">会员卡支付（撤销后余额将恢复）</span>
         </div>
@@ -362,7 +379,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue';
+import { ref, reactive, onMounted, computed, nextTick } from 'vue';
 import { useTransactionStore } from '@/stores/transaction';
 import { useUserStore } from '@/stores/user';
 import { getMembers } from '@/api/member.js';
@@ -379,6 +396,7 @@ import { formatShortDateInAppTimeZone } from '@/utils/date.js';
 import { useVoidTransaction } from '@/composables/useVoidTransaction.js';
 import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
 import { getCardDisplayName } from '@/utils/formatters.js';
+import { PAYMENT_METHODS, CHECKOUT_PAYMENT_OPTIONS } from '@/constants/payment.js';
 import TodayTransactionList from '@/components/transactions/TodayTransactionList.vue';
 
 const roundToTwoDecimals = (value) => Math.round(value * 100) / 100;
@@ -414,7 +432,7 @@ const getInitialForm = () => ({
   customerName: null,
   serviceIds: [],
   staffId: null,
-  paymentMethod: 'CASH',
+  paymentMethod: PAYMENT_METHODS.CASH,
   cardId: null,
   notes: '',
   transactionTime: null,
@@ -453,7 +471,6 @@ onMounted(() => {
         initializeServiceQuantity(defaultService.id);
       }
     }
-    updateTagBadges();
   });
   fetchStaff().then(() => {
     if (!appointmentData && !form.staffId) {
@@ -583,31 +600,12 @@ const handleServiceChange = (newValue) => {
   updateServiceIds();
 };
 
-const uniqueServiceIds = computed(() => [...new Set(form.serviceIds)]);
-
-const getServiceQuantity = (serviceId) => serviceQuantities[serviceId] || 1;
-
-const updateTagBadges = async () => {
-  await nextTick();
-  document.querySelectorAll('.service-quantity-badge').forEach(b => b.remove());
-  const selectedItems = document.querySelectorAll('.service-select-with-badge .el-select__selected-item');
-  selectedItems.forEach((item, index) => {
-    const serviceId = uniqueServiceIds.value[index];
-    if (!serviceId) return;
-    const quantity = getServiceQuantity(serviceId);
-    if (quantity > 1) {
-      const badge = document.createElement('span');
-      badge.className = 'service-quantity-badge';
-      badge.textContent = quantity;
-      badge.style.cssText = `position: absolute; top: -8px; right: -8px; background-color: #f56c6c; color: white; border-radius: 10px; padding: 0 6px; font-size: 12px; line-height: 20px; height: 20px; min-width: 20px; text-align: center; z-index: 10; font-weight: bold;`;
-      item.style.position = 'relative';
-      item.appendChild(badge);
-    }
-  });
+const removeServiceId = (sid) => {
+  delete serviceQuantities[sid];
+  updateServiceIds();
 };
 
-watch(serviceQuantities, () => updateTagBadges(), { deep: true });
-watch(uniqueServiceIds, () => updateTagBadges());
+const uniqueServiceIds = computed(() => [...new Set(form.serviceIds)]);
 
 const totalAmount = computed(() => form.serviceIds.reduce((sum, sid) => {
   const s = serviceMap.value.get(sid);
@@ -642,7 +640,7 @@ const paymentPlan = computed(() => {
   if (cartItems.value.length === 0 || !selectedMember.value) {
     return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
   }
-  if (form.paymentMethod !== 'MEMBER_CARD') {
+  if (form.paymentMethod !== PAYMENT_METHODS.MEMBER_CARD) {
     return { paymentDetails: [], actualPaidAmount: totalAmount.value, discountAmount: new Decimal(0) };
   }
 
@@ -762,7 +760,7 @@ const displayActualPaidAmount = computed(() => {
   if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
     return new Decimal(manualPriceAdjustment.adjustedAmount);
   }
-  if (form.paymentMethod === 'MEMBER_CARD' && selectedMember.value && availableCards.value.length > 0) {
+  if (form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && selectedMember.value && availableCards.value.length > 0) {
     const card = form.cardId ? availableCards.value.find(c => c.id === form.cardId) : availableCards.value[0];
     if (card) {
       const discountRate = getCardDiscountRate(card);
@@ -773,7 +771,7 @@ const displayActualPaidAmount = computed(() => {
 });
 
 const displayDiscountAmount = computed(() => {
-  if (form.paymentMethod === 'MEMBER_CARD' && selectedMember.value && availableCards.value.length > 0) {
+  if (form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && selectedMember.value && availableCards.value.length > 0) {
     const card = form.cardId ? availableCards.value.find(c => c.id === form.cardId) : availableCards.value[0];
     if (card) {
       const discountRate = getCardDiscountRate(card);
@@ -796,7 +794,7 @@ const adjustmentDifferenceText = computed(() => {
 
 const isCheckoutReady = computed(() => {
   if (cartItems.value.length === 0) return false;
-  if (form.paymentMethod === 'MEMBER_CARD') {
+  if (form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD) {
     if (!selectedMember.value) return false;
     if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
       if (cardPaymentMode.value === 'manual' && form.cardId) {
@@ -815,7 +813,7 @@ const isCheckoutReady = computed(() => {
 const handleMemberSelect = (item) => {
   form.memberId = item.id;
   selectedMember.value = item;
-  form.paymentMethod = availableCards.value.length > 0 ? 'MEMBER_CARD' : 'CASH';
+  form.paymentMethod = availableCards.value.length > 0 ? PAYMENT_METHODS.MEMBER_CARD : PAYMENT_METHODS.CASH;
 };
 
 const clearMember = () => {
@@ -887,7 +885,7 @@ const resetForm = async () => {
 };
 
 const getServiceDiscountText = (service) => {
-  if (!selectedMember.value || form.paymentMethod !== 'MEMBER_CARD') {
+  if (!selectedMember.value || form.paymentMethod !== PAYMENT_METHODS.MEMBER_CARD) {
     return '原价 ¥' + new Decimal(service.standardPrice).toFixed(2);
   }
   if (service.noDiscount) {
@@ -927,7 +925,7 @@ const handleCheckout = async () => {
     }
 
     let apiCall;
-    if (form.paymentMethod === 'MEMBER_CARD' && cardPaymentMode.value === 'auto') {
+    if (form.paymentMethod === PAYMENT_METHODS.MEMBER_CARD && cardPaymentMode.value === 'auto') {
       apiCall = createMultiCardTransaction(submitData);
     } else {
       apiCall = createTransaction(submitData);
@@ -1088,6 +1086,22 @@ const handleCheckout = async () => {
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+.service-tag {
+  margin: 2px 4px 2px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.service-tag-qty {
+  background-color: #f56c6c;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: bold;
 }
 .quantity-number {
   min-width: 24px;
