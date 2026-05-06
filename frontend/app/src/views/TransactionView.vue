@@ -163,7 +163,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="数量" width="55" align="center">
+            <el-table-column label="数量" width="120" align="center">
               <template #default="{ row }">
                 <div class="quantity-control">
                   <el-button size="small" :icon="Minus" circle @click="decreaseQuantity(row.id)" :disabled="row.quantity <= 1" />
