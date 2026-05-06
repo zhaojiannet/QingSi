@@ -22,6 +22,58 @@
 | 营业报表 | 营业概览、支付统计、项目排行、生日提醒、沉睡会员 |
 | 系统设置 | 服务项目、卡类型、员工管理、交易撤销 |
 
+## 界面预览
+
+### 收银结算
+
+![收银结算](docs/screenshots/02-transactions.png)
+
+左侧选会员、加服务，右侧自动按卡折扣计算实付金额并实时预览支付方案。
+
+### 会员管理
+
+![会员管理](docs/screenshots/03-members.png)
+
+会员档案、卡数量、余额、挂账、注册时间一行看清。
+
+![会员详情](docs/screenshots/04-member-detail.png)
+
+会员详情抽屉：基本信息、会员卡、挂账记录全在一处。
+
+### 预约排期
+
+![预约排期](docs/screenshots/06-appointments.png)
+
+按当日 / 当周 / 当月查看预约，状态变更即时生效。
+
+### 营业报表
+
+![营业报表](docs/screenshots/05-reports.png)
+
+营业概览、支付统计、项目排行、生日提醒、沉睡会员、挂账明细，每个 tab 都是独立查询。
+
+### 系统设置
+
+![服务项目设置](docs/screenshots/07-settings-services.png)
+
+服务项目、会员卡类型、员工等基础数据集中维护。
+
+![交易撤销日志](docs/screenshots/08-settings-void-logs.png)
+
+撤销日志记录每次退单的余额还原与操作人，含余额快照供审计。
+
+### 顾客自助预约
+
+![顾客端公开预约](docs/screenshots/09-booking-public.png)
+
+通过专属访问码进入，无需登录即可下单预约，店内通过微信公众号收到通知。
+
+### 登录
+
+![登录](docs/screenshots/01-login.png)
+
+支持图形验证码与"信任此设备 7 天免登录"。
+
 ## 技术栈
 
 - 前端：Vue 3 + Element Plus + Vite + Pinia
