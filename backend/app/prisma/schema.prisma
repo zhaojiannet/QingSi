@@ -80,14 +80,14 @@ model Transaction {
   id               String            @id
   memberId         String?
   staffId          String?
-  summary          String?
+  summary          String?           @db.Text
   totalAmount      Decimal           @db.Decimal(10, 2)
   actualPaidAmount Decimal           @db.Decimal(10, 2)
   discountAmount   Decimal           @db.Decimal(10, 2)
   paymentMethod    PaymentMethod
   cardId           String?
   transactionTime  DateTime          @default(now())
-  notes            String?
+  notes            String?           @db.Text
   customerName     String?
   isPending        Boolean           @default(false)
   transactionType  TransactionType   @default(NORMAL)
@@ -285,6 +285,7 @@ enum TransactionType {
   NORMAL
   PENDING
   PENDING_CLEAR
+  CARD_PURCHASE
 }
 
 enum Role {
