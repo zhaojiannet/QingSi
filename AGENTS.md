@@ -27,7 +27,7 @@
 - Refresh token 入库前必须 SHA256 hash（`routes/auth.js#hashRefreshToken`）。bcryptjs 仅用于密码。
 - 全局错误处理在 `server.js#setErrorHandler`：`P2002` → 409，`P2025` → 404，`INSUFFICIENT_BALANCE` → 400。新业务错误码加分支即可，禁止每个路由各写一套。
 - Pino logger redact 已覆盖 `req.headers.authorization/cookie`、`*.password/token/refreshToken/accessToken`。新增敏感字段同步到 `server.js` 的 `logger.redact.paths`。
-- **Fastify register 时传 `{ onRequest: [...] }` 不会自动应用到 plugin 内的 routes**（曾踩坑：23 条核心路由完全裸奔）。每个需要鉴权的 plugin 文件顶部必须显式调用 `applyAuth(fastify, opts)`（见 `utils/applyAuth.js`），新增 plugin 同样处理。
+- **Fastify register 时传 `{ onRequest: [...] }` 不会自动应用到 plugin 内的 routes**。每个需要鉴权的 plugin 文件顶部必须显式调用 `applyAuth(fastify, opts)`（见 `utils/applyAuth.js`），新增 plugin 同样处理。
 
 ## 路由约定
 - 后端资源单文件：`backend/app/src/routes/<resource>.js` ↔ 前端 `frontend/app/src/api/<resource>.js`。新增资源同时建两侧文件并在 `server.js` 注册。
