@@ -4,9 +4,16 @@
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const title = url.searchParams.get('title') || '消息通知';
-    const message = url.searchParams.get('message') || '';
-    const date = url.searchParams.get('date') || '';
+    // 转义 HTML 特殊字符，防止 query 参数注入脚本（反射型 XSS）
+    const escapeHtml = (s) => String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const title = escapeHtml(url.searchParams.get('title') || '消息通知');
+    const message = escapeHtml(url.searchParams.get('message') || '');
+    const date = escapeHtml(url.searchParams.get('date') || '');
 
     const html = `
 <!DOCTYPE html>
