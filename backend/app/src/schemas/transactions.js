@@ -36,36 +36,6 @@ export const createTransactionSchema = {
   }
 };
 
-export const comboCheckoutSchema = {
-  body: {
-    type: 'object',
-    required: ['memberId', 'serviceIds'],
-    properties: {
-      memberId: { type: 'string', minLength: 1, maxLength: 191 },
-      customerName: { type: ['string', 'null'], maxLength: 100 },
-      serviceIds: serviceIdArray,
-      staffId: { type: ['string', 'null'], maxLength: 191 },
-      notes: { type: ['string', 'null'], maxLength: 500 },
-      appointmentId: { type: ['string', 'null'], maxLength: 191 },
-      manualPriceAdjustment,
-      customTransactionTime: { type: ['string', 'null'] }
-    },
-    additionalProperties: false
-  }
-};
-
-export const comboPreviewSchema = {
-  body: {
-    type: 'object',
-    required: ['memberId', 'serviceIds'],
-    properties: {
-      memberId: { type: 'string', minLength: 1, maxLength: 191 },
-      serviceIds: serviceIdArray
-    },
-    additionalProperties: false
-  }
-};
-
 export const voidTransactionSchema = {
   body: {
     type: 'object',

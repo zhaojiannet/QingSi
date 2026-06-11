@@ -6,21 +6,33 @@ import Decimal from 'decimal.js';
 import { getMemberBalanceSnapshot, atomicDecrementBalance } from '../utils/balance.js';
 import {
   createTransactionSchema,
-  comboCheckoutSchema,
-  comboPreviewSchema,
   voidTransactionSchema,
   transactionsQuerySchema
 } from '../schemas/transactions.js';
 import { applyAuth } from '../utils/applyAuth.js';
+import { shopTodayRange, shopDayRange } from '../utils/shopTime.js';
+
+// 取卡的有效折扣率：自定义折扣卡用 customDiscountRate，否则用卡类型的折扣率。
+// 计费必须与展示折扣（同样优先 customDiscountRate）保持一致。
+function effectiveDiscountRate(card) {
+  if (card.discountSource === 'custom' && card.customDiscountRate != null) {
+    return new Decimal(card.customDiscountRate);
+  }
+  return new Decimal(card.cardType.discountRate);
+}
 
 // 智能卡片支付处理函数
 async function handleSmartCardPayment(request, reply, memberId, serviceIds, manualPriceAdjustment, notes, customerName, customTransactionTime) {
   // 获取会员的所有有效卡片
   const memberCards = await prisma.card.findMany({
-    where: { 
-      memberId: memberId, 
+    where: {
+      memberId: memberId,
       status: 'ACTIVE',
-      balance: { gt: 0 }
+      balance: { gt: 0 },
+      OR: [
+        { expiryDate: null },
+        { expiryDate: { gte: new Date() } },
+      ],
     },
     include: { cardType: true },
     orderBy: { balance: 'asc' } // 优先使用余额少的卡
@@ -91,7 +103,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
     }
   } else {
     // 正常折扣计算：考虑noDiscount服务
-    const discountRate = new Decimal(preferredCard.cardType.discountRate);
+    const discountRate = effectiveDiscountRate(preferredCard);
     const discountedAmount = discountableAmount.times(discountRate);
     const totalNeededAmount = discountedAmount.plus(noDiscountAmount);
     
@@ -163,7 +175,7 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
       
       // 再支付打折部分（按折扣价扣费）
       if (!remainingDiscountableAmount.isZero() && totalDeduction.lessThan(cardBalance)) {
-        const discountRate = new Decimal(card.cardType.discountRate);
+        const discountRate = effectiveDiscountRate(card);
         const remainingBalance = cardBalance.minus(totalDeduction);
         const maxDiscountableAmountThisCardCanCover = remainingBalance.div(discountRate);
         const discountableCovered = Decimal.min(remainingDiscountableAmount, maxDiscountableAmountThisCardCanCover);
@@ -278,8 +290,6 @@ async function handleSmartCardPayment(request, reply, memberId, serviceIds, manu
 
 export default async function (fastify, opts) {
   applyAuth(fastify, opts);
-  // 管理员和经理权限
-  const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
   // --- 创建一笔新消费 (手动选卡或非会员) ---
   fastify.post('/', { schema: createTransactionSchema }, async (request, reply) => {
@@ -392,12 +402,20 @@ export default async function (fastify, opts) {
         if (!cardUsed || cardUsed.memberId !== memberId) {
           return reply.code(404).send({ message: '会员卡不存在或不属于该会员' });
         }
-        
+
+        // 校验卡状态与有效期：停用（FROZEN/DEPLETED/EXPIRED）或已过期的卡不能扣款
+        if (cardUsed.status !== 'ACTIVE') {
+          return reply.code(400).send({ message: '该会员卡已停用，无法使用' });
+        }
+        if (cardUsed.expiryDate && new Date(cardUsed.expiryDate) < new Date()) {
+          return reply.code(400).send({ message: '该会员卡已过期，无法使用' });
+        }
+
         const cardBalance = new Decimal(cardUsed.balance);
 
         // 如果没有手动调整，应用会员卡折扣（仅对可折扣的服务）
         if (!isManualAdjustment) {
-          const discountRate = new Decimal(cardUsed.cardType.discountRate);
+          const discountRate = effectiveDiscountRate(cardUsed);
           const discountedAmount = discountableAmount.times(discountRate);
           actualPaidAmount = discountedAmount.plus(noDiscountAmount);
           discountAmount = discountableAmount.minus(discountedAmount);
@@ -481,322 +499,6 @@ export default async function (fastify, opts) {
 
   });
 
-  // --- 组合支付结算接口 ---
-  fastify.post('/combo-checkout', { schema: comboCheckoutSchema }, async (request, reply) => {
-    const { memberId, customerName, serviceIds, staffId, notes, appointmentId, manualPriceAdjustment, customTransactionTime } = request.body;
-
-
-      const memberCards = await prisma.card.findMany({
-        where: {
-          memberId: memberId,
-          status: 'ACTIVE',
-          balance: { gt: 0 },
-        },
-        include: { cardType: true },
-        orderBy: [
-          { cardType: { discountRate: 'asc' } },
-          { balance: 'asc' },
-        ],
-      });
-
-      if (memberCards.length === 0) {
-        return reply.code(400).send({ message: '该会员没有可用的会员卡' });
-      }
-
-      const services = await prisma.service.findMany({
-        where: { id: { in: serviceIds } },
-      });
-      if (services.length !== serviceIds.length) {
-        return reply.code(404).send({ message: '一个或多个服务项目不存在' });
-      }
-      
-      // 计算服务数量
-      const serviceQuantities = {};
-      serviceIds.forEach(id => {
-        serviceQuantities[id] = (serviceQuantities[id] || 0) + 1;
-      });
-      
-      // 分别计算可打折和不打折服务的金额
-      const totalAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
-        const service = services.find(s => s.id === serviceId);
-        const quantity = serviceQuantities[serviceId];
-        return sum.plus(new Decimal(service.standardPrice).times(quantity));
-      }, new Decimal(0));
-      
-      const discountableAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
-        const service = services.find(s => s.id === serviceId);
-        if (!service.noDiscount) {
-          const quantity = serviceQuantities[serviceId];
-          return sum.plus(new Decimal(service.standardPrice).times(quantity));
-        }
-        return sum;
-      }, new Decimal(0));
-      
-      const noDiscountAmount = Object.keys(serviceQuantities).reduce((sum, serviceId) => {
-        const service = services.find(s => s.id === serviceId);
-        if (service.noDiscount) {
-          const quantity = serviceQuantities[serviceId];
-          return sum.plus(new Decimal(service.standardPrice).times(quantity));
-        }
-        return sum;
-      }, new Decimal(0));
-      
-      let remainingAmountToPay = totalAmount;
-      let actualPaidTotal = new Decimal(0);
-      let isManualAdjustment = false;
-      const paymentDetails = [];
-
-      // 如果有手动价格调整，直接使用调整后的金额
-      if (manualPriceAdjustment && manualPriceAdjustment.adjustedAmount !== undefined) {
-        actualPaidTotal = new Decimal(manualPriceAdjustment.adjustedAmount);
-        isManualAdjustment = true;
-        
-        // 检查余额是否足够支付调整后的金额
-        const totalBalance = memberCards.reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
-        if (totalBalance.lessThan(actualPaidTotal)) {
-          return reply.code(400).send({ message: `所有会员卡余额不足，余额总计 ¥${totalBalance.toFixed(2)}，需支付 ¥${actualPaidTotal.toFixed(2)}` });
-        }
-
-        // 按卡余额分配扣款
-        let remainingToDeduct = actualPaidTotal;
-        for (const card of memberCards) {
-          if (remainingToDeduct.isZero()) break;
-          const cardBalance = new Decimal(card.balance);
-          const deduction = Decimal.min(cardBalance, remainingToDeduct);
-          
-          remainingToDeduct = remainingToDeduct.minus(deduction);
-          paymentDetails.push({ cardId: card.id, deduction: deduction.toNumber() });
-        }
-      } else {
-        // 正常多卡支付：分别处理不打折和可打折服务
-        let remainingNoDiscountAmount = noDiscountAmount;
-        let remainingDiscountableAmount = discountableAmount;
-        let totalDiscountGiven = new Decimal(0);
-
-        for (const card of memberCards) {
-          if (remainingNoDiscountAmount.isZero() && remainingDiscountableAmount.isZero()) break;
-          
-          const cardBalance = new Decimal(card.balance);
-          const discountRate = new Decimal(card.cardType.discountRate);
-          let totalDeduction = new Decimal(0);
-          let cardDiscountGiven = new Decimal(0);
-          
-          // 1. 先支付不打折服务（按原价1:1扣费）
-          if (!remainingNoDiscountAmount.isZero()) {
-            const noDiscountCovered = Decimal.min(remainingNoDiscountAmount, cardBalance.minus(totalDeduction));
-            if (noDiscountCovered.greaterThan(0)) {
-              totalDeduction = totalDeduction.plus(noDiscountCovered);
-              remainingNoDiscountAmount = remainingNoDiscountAmount.minus(noDiscountCovered);
-            }
-          }
-          
-          // 2. 再支付可打折服务（按折扣价扣费）
-          if (!remainingDiscountableAmount.isZero() && totalDeduction.lessThan(cardBalance)) {
-            const remainingCardBalance = cardBalance.minus(totalDeduction);
-            const maxDiscountableAmountThisCardCanCover = remainingCardBalance.div(discountRate);
-            const discountableCovered = Decimal.min(remainingDiscountableAmount, maxDiscountableAmountThisCardCanCover);
-            const discountableDeduction = discountableCovered.times(discountRate);
-            
-            if (discountableDeduction.greaterThan(0)) {
-              totalDeduction = totalDeduction.plus(discountableDeduction);
-              cardDiscountGiven = discountableCovered.minus(discountableDeduction);
-              totalDiscountGiven = totalDiscountGiven.plus(cardDiscountGiven);
-              remainingDiscountableAmount = remainingDiscountableAmount.minus(discountableCovered);
-            }
-          }
-          
-          if (totalDeduction.greaterThan(0)) {
-            actualPaidTotal = actualPaidTotal.plus(totalDeduction);
-            paymentDetails.push({ 
-              cardId: card.id, 
-              deduction: totalDeduction.toNumber(),
-              discountGiven: cardDiscountGiven.toNumber() 
-            });
-          }
-        }
-        
-        // 检查是否还有未支付的金额
-        if (!remainingNoDiscountAmount.isZero() || !remainingDiscountableAmount.isZero()) {
-          const remainingTotal = remainingNoDiscountAmount.plus(remainingDiscountableAmount);
-          return reply.code(400).send({ 
-            message: `所有会员卡余额不足，仍有 ¥${remainingTotal.toFixed(2)} 未支付` 
-          });
-        }
-      }
-
-
-      const result = await prisma.$transaction(async (tx) => {
-        // 更新所有使用的卡余额（原子扣减，防止并发超扣）
-        for (const detail of paymentDetails) {
-          await atomicDecrementBalance(tx, detail.cardId, detail.deduction);
-        }
-
-        // 获取使用的卡ID列表和扣款金额
-        const usedCardIds = paymentDetails.map(d => d.cardId);
-        const cardDeductions = {};
-        paymentDetails.forEach(d => {
-          cardDeductions[d.cardId] = d.deduction;
-        });
-        // 记录会员所有卡的余额快照（含交易前后）
-        const balanceSnapshot = await getMemberBalanceSnapshot(tx, memberId, usedCardIds, cardDeductions);
-
-        // 计算正确的折扣金额
-        let finalDiscountAmount;
-        if (isManualAdjustment) {
-          finalDiscountAmount = totalAmount.minus(actualPaidTotal);
-        } else {
-          // 正常情况：只对可打折服务计算折扣
-          const totalDiscountGiven = paymentDetails.reduce((sum, detail) => {
-            return sum.plus(new Decimal(detail.discountGiven || 0));
-          }, new Decimal(0));
-          finalDiscountAmount = totalDiscountGiven;
-        }
-
-        const newTransaction = await tx.transaction.create({
-            data: {
-                id: await generateUniqueId(tx.transaction),
-                // 不设置summary，让前端显示具体的服务项目名称
-                customerName: customerName || null,
-                totalAmount: totalAmount.toNumber(),
-                actualPaidAmount: actualPaidTotal.toNumber(),
-                discountAmount: finalDiscountAmount.toNumber(),
-                paymentMethod: 'MEMBER_CARD',
-                balanceSnapshot: balanceSnapshot,
-                notes: (() => {
-                  let finalNotes = '';
-                  if (customTransactionTime) {
-                    finalNotes += '[手动设置时间] ';
-                  }
-                  if (paymentDetails.length > 1) {
-                    finalNotes += `多卡联合支付: ${paymentDetails.map(detail => {
-                      const card = memberCards.find(c => c.id === detail.cardId);
-                      const cardName = card.isCustomCard
-                        ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
-                        : card.cardType.name;
-                      return `${cardName}¥${new Decimal(detail.deduction).toFixed(2)}`;
-                    }).join(' + ')}`;
-                  } else if (isManualAdjustment) {
-                    finalNotes += `${notes ? notes + ' | ' : ''}价格调整：${manualPriceAdjustment.reason}`;
-                  } else {
-                    finalNotes += notes || '';
-                  }
-                  return finalNotes || null;
-                })(),
-                member: { connect: { id: memberId } },
-                staff: staffId ? { connect: { id: staffId } } : undefined,
-                appointment: appointmentId ? { connect: { id: appointmentId } } : undefined,
-                items: {
-                  create: Object.keys(serviceQuantities).map(serviceId => ({
-                    id: generateId(),
-                    serviceId: serviceId,
-                    price: services.find(s => s.id === serviceId).standardPrice,
-                    quantity: serviceQuantities[serviceId],
-                  })),
-                },
-                cardLinks: paymentDetails.length > 1 ? {
-                  create: paymentDetails.map(detail => {
-                    const card = memberCards.find(c => c.id === detail.cardId);
-                    const cardName = card.isCustomCard
-                      ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
-                      : card.cardType.name;
-                    return { cardId: detail.cardId, cardName, amount: detail.deduction };
-                  }),
-                } : undefined,
-                transactionTime: customTransactionTime ? new Date(customTransactionTime) : undefined,
-            }
-        });
-
-        if(appointmentId) {
-            await tx.appointment.update({
-                where: { id: appointmentId },
-                data: { status: 'COMPLETED' }
-            });
-        }
-
-        return tx.transaction.findUnique({
-            where: { id: newTransaction.id },
-            include: { member: true, staff: true, items: { include: { service: true } } },
-        });
-      });
-      
-      const finalResult = {
-        ...result,
-        totalAmount: new Decimal(result.totalAmount).toFixed(2),
-        actualPaidAmount: new Decimal(result.actualPaidAmount).toFixed(2),
-        discountAmount: new Decimal(result.discountAmount).toFixed(2),
-      };
-
-      return finalResult;
-
-
-  });
-
-  // --- 组合支付“试算”接口 ---
-  fastify.post('/combo-preview', { schema: comboPreviewSchema }, async (request, reply) => {
-    const { memberId, serviceIds } = request.body;
-
-    const memberCards = await prisma.card.findMany({
-        where: {
-          memberId: memberId,
-          status: 'ACTIVE',
-          balance: { gt: 0 },
-        },
-        include: { cardType: true },
-        orderBy: [
-          { cardType: { discountRate: 'asc' } },
-          { balance: 'asc' },
-        ],
-    });
-    if (memberCards.length === 0) {
-      return reply.code(400).send({ message: '该会员没有可用的会员卡' });
-    }
-    
-    const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } });
-    const totalAmount = services.reduce((sum, s) => sum.plus(new Decimal(s.standardPrice)), new Decimal(0));
-
-    let remainingAmountToPay = totalAmount;
-    let actualPaidTotal = new Decimal(0);
-    const paymentDetails = [];
-
-    for (const card of memberCards) {
-      if (remainingAmountToPay.isZero()) break;
-      const cardBalance = new Decimal(card.balance);
-      const discountRate = new Decimal(card.cardType.discountRate);
-      const maxOriginalAmountThisCardCanCover = cardBalance.div(discountRate);
-      const amountToCoverByThisCard = Decimal.min(remainingAmountToPay, maxOriginalAmountThisCardCanCover);
-      const deduction = amountToCoverByThisCard.times(discountRate);
-      
-      actualPaidTotal = actualPaidTotal.plus(deduction);
-      remainingAmountToPay = remainingAmountToPay.minus(amountToCoverByThisCard);
-
-      // 生成正确的卡片名称（包含自定义面值卡）
-      const cardName = card.isCustomCard 
-        ? `自定义面值卡(¥${new Decimal(card.customAmount).toFixed(2)})`
-        : card.cardType.name;
-      
-      paymentDetails.push({
-        cardId: card.id,
-        cardName: cardName,
-        deduction: deduction.toDecimalPlaces(2).toNumber(),
-        originalAmountCovered: amountToCoverByThisCard.toDecimalPlaces(2).toNumber(),
-        discountRate: card.cardType.discountRate
-      });
-    }
-
-    if (!remainingAmountToPay.isZero()) {
-      return reply.code(400).send({ message: `所有会员卡余额不足，仍有 ¥${remainingAmountToPay.toFixed(2)} 未支付` });
-    }
-    
-    const discountAmount = totalAmount.minus(actualPaidTotal);
-
-    return {
-      totalAmount: totalAmount.toDecimalPlaces(2).toNumber(),
-      actualPaidAmount: actualPaidTotal.toDecimalPlaces(2).toNumber(),
-      discountAmount: discountAmount.toDecimalPlaces(2).toNumber(),
-      paymentDetails,
-    };
-  });
-
   // --- 获取今日交易记录的接口 ---
   fastify.get('/today', async (request, reply) => {
       const { page = 1, limit = 20 } = request.query;
@@ -804,17 +506,15 @@ export default async function (fastify, opts) {
       const limitNum = parseInt(limit);
       const skip = (pageNum - 1) * limitNum;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      // 按门店本地时区（UTC+8）计算"今天"范围，避免容器 UTC 跨日错位
+      const { start: today, end: tomorrow } = shopTodayRange();
 
       // 获取总记录数
       const totalCount = await prisma.transaction.count({
         where: {
           transactionTime: {
             gte: today,
-            lt: tomorrow,
+            lte: tomorrow,
           },
         },
       });
@@ -823,7 +523,7 @@ export default async function (fastify, opts) {
         where: {
           transactionTime: {
             gte: today,
-            lt: tomorrow,
+            lte: tomorrow,
           },
         },
         include: {
@@ -843,11 +543,12 @@ export default async function (fastify, opts) {
               }
             }
           },
-          items: { 
-            include: { 
-              service: { select: { name: true, standardPrice: true } } 
-            } 
+          items: {
+            include: {
+              service: { select: { name: true, standardPrice: true } }
+            }
           },
+          cardLinks: true,
         },
         orderBy: { transactionTime: 'desc' },
         skip: skip,
@@ -905,12 +606,9 @@ export default async function (fastify, opts) {
     
     const where = {};
     
-    // 日期范围过滤
+    // 日期范围过滤（按门店本地时区 UTC+8 计算边界）
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const { start, end } = shopDayRange(startDate, endDate);
       where.transactionTime = { gte: start, lte: end };
     }
     
@@ -978,18 +676,21 @@ export default async function (fastify, opts) {
               }
             }
           },
-          items: { 
+          items: {
             select: {
               id: true,
               price: true,
               quantity: true,
-              service: { 
-                select: { 
-                  name: true, 
-                  standardPrice: true 
-                } 
+              service: {
+                select: {
+                  name: true,
+                  standardPrice: true
+                }
               }
             }
+          },
+          cardLinks: {
+            select: { cardId: true, cardName: true, amount: true }
           },
         },
         orderBy: [
@@ -1036,46 +737,8 @@ export default async function (fastify, opts) {
     };
   });
 
-  // 删除交易记录接口 - 需要管理员或经理权限
-  fastify.delete('/:transactionId', {
-    ...managerAndAdminAccess,
-    schema: { params: { type: 'object', required: ['transactionId'], properties: { transactionId: { type: 'string', pattern: '^[a-zA-Z0-9_-]+$', minLength: 1, maxLength: 191 } } } }
-  }, async (request, reply) => {
-    const { transactionId } = request.params;
-
-    try {
-      // 检查交易记录是否存在
-      const transaction = await prisma.transaction.findUnique({
-        where: { id: transactionId },
-        include: {
-          member: { select: { name: true } },
-          items: { include: { service: { select: { name: true } } } }
-        }
-      });
-
-      if (!transaction) {
-        return reply.code(404).send({ message: '交易记录不存在' });
-      }
-
-      // 删除交易记录（会级联删除相关的交易项目）
-      await prisma.transaction.delete({
-        where: { id: transactionId }
-      });
-
-      return {
-        message: '交易记录删除成功',
-        deletedTransaction: {
-          id: transaction.id,
-          memberName: transaction.member?.name,
-          totalAmount: transaction.totalAmount,
-          transactionTime: transaction.transactionTime
-        }
-      };
-
-    } catch (error) {
-      return reply.code(500).send({ message: '删除交易记录失败', error: error.message });
-    }
-  });
+  // 交易不提供物理删除：删除会绕过撤销流程（不退卡余额、不写审计、无时限校验）。
+  // 需要冲正一笔交易时统一走下方的撤销接口 POST /:transactionId/void。
 
   // --- 撤销交易接口 ---
   fastify.post('/:transactionId/void', {
@@ -1227,10 +890,21 @@ export default async function (fastify, opts) {
 
       // 5.3 如果是办卡交易，删除对应的会员卡
       let deletedCard = null;
-      if (transaction.summary && transaction.summary.includes('办理【')) {
-        // 从 summary 中解析卡名，格式: "办理【卡名 折扣】"
-        const cardMatch = transaction.summary.match(/办理【(.+?)(?:\s+[\d.]+折)?】/);
-        if (cardMatch && transaction.memberId) {
+      if (transaction.transactionType === 'CARD_PURCHASE') {
+        let targetCard = null;
+
+        // 优先用办卡时写入的结构化标记 ISSUE_CARD:<cardId> 精确定位（新办卡交易）
+        const issueMatch = transaction.notes && transaction.notes.match(/ISSUE_CARD:([a-zA-Z0-9_-]+)/);
+        if (issueMatch && transaction.memberId) {
+          targetCard = await tx.card.findFirst({
+            where: { id: issueMatch[1], memberId: transaction.memberId },
+            include: { cardType: true }
+          });
+        }
+
+        // 回退：历史办卡交易无 ISSUE_CARD 标记，用卡名 + 时间窗匹配（仅兼容旧数据）
+        const cardMatch = !targetCard && transaction.summary.match(/办理【(.+?)(?:\s+[\d.]+折)?】/);
+        if (!targetCard && cardMatch && transaction.memberId) {
           const cardName = cardMatch[1].trim();
 
           // 查找该会员的匹配卡片（优先匹配发行时间接近的）
@@ -1248,7 +922,6 @@ export default async function (fastify, opts) {
 
           // 找到与办卡交易时间最接近的卡片
           const txTime = new Date(transaction.transactionTime).getTime();
-          let targetCard = null;
           let minTimeDiff = Infinity;
 
           for (const card of memberCards) {
@@ -1266,7 +939,9 @@ export default async function (fastify, opts) {
               }
             }
           }
+        }
 
+        if (transaction.memberId) {
           if (targetCard) {
             deletedCard = {
               cardId: targetCard.id,

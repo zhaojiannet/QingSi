@@ -34,36 +34,40 @@ export function useTransactionFormatters() {
     return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
   };
 
+  // 优先用后端返回的结构化 cardLinks 判断多卡，历史交易（无 cardLinks）回退到 notes 文本
   const isMultiCardPayment = (transaction) => {
+    if (transaction.cardLinks && transaction.cardLinks.length > 0) {
+      return transaction.cardLinks.length > 1;
+    }
     return transaction.notes && transaction.notes.includes('多卡联合支付:');
   };
 
   const getAverageDiscountDisplay = (transaction) => {
     const totalAmount = parseFloat(transaction.totalAmount);
     const actualPaidAmount = parseFloat(transaction.actualPaidAmount);
-    if (totalAmount <= 0 && transaction.notes) {
-      const match = transaction.notes.match(/¥(\d+(?:\.\d+)?)\s*折后\s*¥(\d+(?:\.\d+)?)/);
-      if (match) {
-        const originalPrice = parseFloat(match[1]);
-        const discountedPrice = parseFloat(match[2]);
-        if (originalPrice > 0) {
-          const discount = (discountedPrice / originalPrice) * 10;
-          return discount % 1 === 0 ? Math.round(discount) : discount.toFixed(1);
-        }
-      }
-      return '7.0';
-    }
+    // 没有有效原价时无法计算折扣，返回占位符而非编造数据
+    if (!(totalAmount > 0)) return '-';
     const avgDiscount = (actualPaidAmount / totalAmount) * 10;
     return avgDiscount % 1 === 0 ? Math.round(avgDiscount) : avgDiscount.toFixed(1);
   };
 
   const getMultiCardDetails = (transaction) => {
-    if (!transaction.notes) return '';
-    const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
-    return match && match[1] ? match[1].trim() : '多卡组合支付';
+    const list = getMultiCardList(transaction);
+    if (list.length > 0) {
+      return list.map(c => (c.amount != null ? `${c.name}¥${formatAmount(c.amount)}` : c.name)).join(' + ');
+    }
+    return '多卡组合支付';
   };
 
   const getMultiCardList = (transaction) => {
+    // 优先用结构化 cardLinks
+    if (transaction.cardLinks && transaction.cardLinks.length > 0) {
+      return transaction.cardLinks.map(link => ({
+        name: link.cardName,
+        amount: link.amount,
+      }));
+    }
+    // 回退：历史交易从 notes 文本解析
     if (!transaction.notes) return [];
     const match = transaction.notes.match(/多卡联合支付:\s*(.+?)(?:\s*\||$)/);
     if (match && match[1]) {

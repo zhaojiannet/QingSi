@@ -17,7 +17,7 @@ export const getTodayTransactions = (params = {}) => {
   });
 };
 
-// --- 优化点2: 新增流水查询API ---
+// 按日期范围查询流水
 export const getTransactionsByDateRange = (params) => {
   return request({
     url: '/transactions',
@@ -26,32 +26,7 @@ export const getTransactionsByDateRange = (params) => {
   });
 };
 
-export const createComboCheckout = (data) => {
-  return request({
-    url: '/transactions/combo-checkout',
-    method: 'post',
-    data,
-  });
-};
-
-export const getComboCheckoutPreview = (data) => {
-  return request({
-    url: '/transactions/combo-preview',
-    method: 'post',
-    data,
-  });
-};
-
-// 智能会员卡支付接口（自动选择最优支付方式：单卡或多卡组合）
-export const createSmartCardPayment = (data) => {
-  return request({
-    url: '/transactions',
-    method: 'post',
-    data,
-  });
-};
-
-// 兼容性：保留旧函数名，使用智能支付接口
+// 兼容旧函数名：与 createTransaction 等价，统一走 /transactions 智能支付
 export const createMultiCardTransaction = (data) => {
   return request({
     url: '/transactions',

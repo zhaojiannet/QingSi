@@ -9,8 +9,6 @@ import { applyAuth } from '../utils/applyAuth.js';
 
 export default async function (fastify, opts) {
   applyAuth(fastify, opts);
-  // 管理员和经理权限
-  const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRole(['ADMIN', 'MANAGER'])] };
 
   fastify.post('/issue-with-transaction', { schema: issueWithTransactionSchema }, async (request, reply) => {
       const {
@@ -28,12 +26,12 @@ export default async function (fastify, opts) {
       if (!cardType) {
         return reply.code(404).send({ message: '卡类型不存在' });
       }
-      
+
       const result = await prisma.$transaction(async (tx) => {
         // 计算卡片初始金额和名称
         const cardBalance = isCustomCard ? customAmount : cardType.initialPrice;
         const cardName = isCustomCard ? `自定义面值卡(¥${new Decimal(customAmount).toFixed(2)})` : cardType.name;
-        
+
         // 计算折扣率显示
         let discountDisplay = '';
         if (discountSource === 'custom' && customDiscountRate) {
@@ -41,7 +39,7 @@ export default async function (fastify, opts) {
         } else {
           discountDisplay = `${Math.round(cardType.discountRate * 10)}折`;
         }
-        
+
         const newCard = await tx.card.create({
           data: {
             id: await generateUniqueId(tx.card),
@@ -62,16 +60,19 @@ export default async function (fastify, opts) {
           data: {
             id: await generateUniqueId(tx.transaction),
             member: { connect: { id: memberId } },
-            ...(staffId && { staff: { connect: { id: staffId } } }), 
+            ...(staffId && { staff: { connect: { id: staffId } } }),
             summary: `办理【${cardName} ${discountDisplay}】`,
+            // 结构化记录所办卡片 ID，撤销办卡交易时据此精确删卡（不靠卡名+时间窗猜测）
+            notes: `ISSUE_CARD:${newCard.id}`,
             totalAmount: cardBalance,
             actualPaidAmount: cardBalance,
             discountAmount: 0,
             paymentMethod: paymentMethod || 'CASH',
+            transactionType: 'CARD_PURCHASE',
             transactionTime: new Date(),
           },
         });
-        
+
 
         return { newCard };
       });
@@ -79,41 +80,8 @@ export default async function (fastify, opts) {
       return result;
   });
 
-  // 删除会员卡接口 - 需要管理员或经理权限
-  fastify.delete('/:cardId', {
-    ...managerAndAdminAccess,
-    schema: { params: { type: 'object', required: ['cardId'], properties: { cardId: { type: 'string', pattern: '^[a-zA-Z0-9_-]+$', minLength: 1, maxLength: 191 } } } }
-  }, async (request, reply) => {
-    const { cardId } = request.params;
-
-    try {
-      // 检查会员卡是否存在
-      const card = await prisma.card.findUnique({
-        where: { id: cardId },
-        include: { cardType: true }
-      });
-      
-      if (!card) {
-        return reply.code(404).send({ message: '会员卡不存在' });
-      }
-      
-      // 删除会员卡
-      await prisma.card.delete({
-        where: { id: cardId }
-      });
-      
-      return { 
-        message: '会员卡删除成功',
-        deletedCard: {
-          id: card.id,
-          cardTypeName: card.cardType.name,
-          balance: card.balance
-        }
-      };
-      
-    } catch (error) {
-      return reply.code(500).send({ message: '删除会员卡失败', error: error.message });
-    }
-  });
+  // 会员卡不提供物理删除：有余额或有交易历史的卡删除会破坏资金与历史记录完整性，
+  // 且会撞上 TransactionCardLink 外键约束。误办的卡通过撤销对应的办卡交易处理
+  // （撤销办卡交易时会一并删除该卡）；停用卡片请改卡状态而非删除。
 
 }
