@@ -6,9 +6,11 @@ import { useUserStore } from '@/stores/user';
 import { refreshToken as refreshTokenApi } from './auth';
 import { setTimezoneHeader } from '@/utils/timezone-unified';
 
-const service = axios.create({ 
-  baseURL: '/api', 
-  timeout: 10000 
+const service = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+  // 让 httpOnly cookie（refresh token、验证码 session）随请求自动发送
+  withCredentials: true,
 });
 
 // 请求拦截器
@@ -56,8 +58,14 @@ service.interceptors.response.use(
   (error) => {
     const originalRequest = error.config;
     
-    // 只处理 401 Unauthorized 错误
-    if (error.response?.status === 401 && originalRequest.url !== '/auth/refresh') {
+    // 登录/刷新接口自身返回的 401 不走刷新流程：
+    // 登录密码错误应直接提示用户，刷新失败应直接登出
+    const isAuthRetryExempt =
+      originalRequest.url === '/auth/refresh' || originalRequest.url === '/auth/login';
+
+    // _retry 标记防止刷新后用新 token 重试仍 401 时陷入无限刷新-重试循环
+    if (error.response?.status === 401 && !isAuthRetryExempt && !originalRequest._retry) {
+      originalRequest._retry = true;
       if (isRefreshing) {
         // 如果正在刷新中，将当前失败的请求存入队列，并返回一个pending的Promise
         return new Promise((resolve, reject) => {
@@ -73,7 +81,8 @@ service.interceptors.response.use(
       const userStore = useUserStore();
 
       return new Promise((resolve, reject) => {
-        refreshTokenApi({ refreshToken: userStore.refreshToken })
+        // refresh token 在 httpOnly cookie 中，随请求自动发送，无需手动传
+        refreshTokenApi()
           .then(res => {
             const { accessToken } = res;
             userStore.setTokens(accessToken); // 更新 store 和 localStorage
