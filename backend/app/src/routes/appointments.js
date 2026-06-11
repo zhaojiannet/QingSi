@@ -8,20 +8,19 @@ import {
   appointmentsQuerySchema
 } from '../schemas/appointments.js';
 import { applyAuth } from '../utils/applyAuth.js';
+import { shopDayRange, shopTodayRange } from '../utils/shopTime.js';
 
 export default async function (fastify, opts) {
   applyAuth(fastify, opts);
 
   fastify.get('/count/today', async (request, reply) => {
-    const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const { start: startOfToday, end: endOfToday } = shopTodayRange();
 
     const count = await prisma.appointment.count({
       where: {
         appointmentTime: {
           gte: startOfToday,
-          lt: endOfToday,
+          lte: endOfToday,
         },
         // --- 核心修改：只统计“待确认”和“已确认”的预约 ---
         status: {
@@ -72,10 +71,7 @@ export default async function (fastify, opts) {
     const where = {};
 
     if (startDate && endDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
+        const { start, end } = shopDayRange(startDate, endDate);
         where.appointmentTime = { gte: start, lte: end };
     }
     if (staffId) {

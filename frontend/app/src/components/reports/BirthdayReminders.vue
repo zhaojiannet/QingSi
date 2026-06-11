@@ -15,7 +15,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="birthday" label="生日日期">
-        <template #default="{ row }">{{ new Date(row.birthday).toLocaleDateString([], { month: '2-digit', day: '2-digit' }) }}</template>
+        <template #default="{ row }">{{ formatPureMonthDay(row.birthday) }}</template>
       </el-table-column>
       <el-table-column prop="status" label="会员状态">
         <template #default="{ row }">
@@ -43,6 +43,7 @@
 import { reactive, onMounted } from 'vue';
 import { getBirthdayReminders } from '@/api/report.js';
 import { memberStatusText, memberStatusTagType } from '@/utils/formatters.js';
+import { formatPureMonthDay } from '@/utils/date.js';
 
 const state = reactive({ loading: false, data: [] });
 

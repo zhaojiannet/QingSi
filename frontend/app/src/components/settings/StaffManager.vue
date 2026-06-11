@@ -29,7 +29,7 @@
 </el-table-column>
 <el-table-column label="入职日期" prop="hireDate">
 <template #default="{ row }">
-{{ new Date(row.hireDate).toLocaleDateString() }}
+{{ formatDateInAppTimeZone(row.hireDate) }}
 </template>
 </el-table-column>
 <el-table-column label="操作" width="120" align="center" fixed="right">
@@ -98,6 +98,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { getStaffList, createStaff, updateStaff, deleteStaff } from '@/api/staff.js';
+import { formatDateInAppTimeZone } from '@/utils/date.js';
 import { ElMessage } from 'element-plus';
 import { Plus } from '@element-plus/icons-vue';
 
@@ -112,7 +113,7 @@ const initialStatus = ref('');
 const getInitialForm = () => ({
 id: null,
 name: '',
-position: '发型师',
+position: '',
 phone: '',
 sortOrder: 99,
 countsCommission: true,
