@@ -217,7 +217,7 @@ const handleSubmit = async () => {
 .header-title {
   font-size: 22px;
   font-weight: 600;
-  color: #25686c;
+  color: var(--el-color-primary);
 }
 
 .header-subtitle {
@@ -251,7 +251,7 @@ const handleSubmit = async () => {
 
 .result-icon.error { color: #f56c6c; }
 .result-icon.success { color: #67c23a; }
-.result-icon.loading { color: #25686c; }
+.result-icon.loading { color: var(--el-color-primary); }
 
 .result-card h2 {
   font-size: 20px;
@@ -289,8 +289,8 @@ const handleSubmit = async () => {
   height: 44px;
   font-size: 16px;
   margin-top: 8px;
-  background-color: #25686c !important;
-  border-color: #25686c !important;
+  background-color: var(--el-color-primary) !important;
+  border-color: var(--el-color-primary) !important;
 }
 
 .submit-btn:hover,

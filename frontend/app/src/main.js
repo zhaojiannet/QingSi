@@ -8,7 +8,9 @@ import router from './router'
 
 // 保持全量引入，确保所有组件样式正确
 import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css' 
+import 'element-plus/dist/index.css'
+// 品牌主题覆盖（必须在 element-plus 默认样式之后加载）
+import '@/assets/theme.css'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
