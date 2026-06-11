@@ -8,8 +8,8 @@ export const createMemberSchema = {
       name: { type: 'string', minLength: 1, maxLength: 50 },
       phone: phoneSchema,
       gender: { type: 'string', enum: genderEnum },
-      birthday: { type: 'string', format: 'date' },
-      notes: { type: 'string', maxLength: 500 }
+      birthday: { type: ['string', 'null'], format: 'date' },
+      notes: { type: ['string', 'null'], maxLength: 500 }
     },
     additionalProperties: false
   }
