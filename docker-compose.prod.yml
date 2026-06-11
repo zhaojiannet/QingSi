@@ -1,0 +1,49 @@
+# 生产部署：前端构建为静态文件由 nginx 服务并反代 /api 到后端，后端生产模式启动。
+# 与开发用的 docker-compose.yml 相互独立，按需选用：
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# 注意：后端在 NODE_ENV=production 下会强制 Secure Cookie（refresh token），
+# 因此生产环境前端必须经 HTTPS 访问（在本 nginx 前再加一层 HTTPS 反代或证书）。
+services:
+  backend:
+    build:
+      context: ./backend/app
+      dockerfile: Dockerfile.prod
+    container_name: qingsi_backend_prod
+    env_file:
+      - ./backend/app/.env
+    environment:
+      - NODE_ENV=production
+      - TRUST_PROXY=1
+    restart: unless-stopped
+    command: >
+      sh -c "
+      npx prisma migrate deploy &&
+      npx tsx init-admin.js &&
+      pnpm start
+      "
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/configs',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - docker-net
+
+  frontend:
+    build:
+      context: ./frontend/app
+      dockerfile: Dockerfile.prod
+    container_name: qingsi_frontend_prod
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - docker-net
+
+networks:
+  docker-net:
+    external: true

@@ -1,0 +1,18 @@
+# 后端生产镜像：固定 pnpm 版本、frozen-lockfile 安装，生产模式启动（不 watch）。
+FROM node:24-trixie-slim
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json pnpm-lock.yaml* ./
+# 装全部依赖：start 用 tsx、迁移用 prisma CLI，均需保留
+RUN pnpm install --frozen-lockfile --prod=false
+COPY . .
+RUN npx prisma generate
+
+ENV NODE_ENV=production
+EXPOSE 3000
+# 数据库迁移与管理员初始化在 compose 的 command 中执行，这里只定义默认启动
+CMD ["pnpm", "start"]
