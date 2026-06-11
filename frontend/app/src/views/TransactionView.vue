@@ -799,10 +799,10 @@ const isCheckoutReady = computed(() => {
     if (manualPriceAdjustment.isActive && manualPriceAdjustment.adjustedAmount !== null) {
       if (cardPaymentMode.value === 'manual' && form.cardId) {
         const card = availableCards.value.find(c => c.id === form.cardId);
-        return card && manualPriceAdjustment.adjustedAmount <= parseFloat(card.balance);
+        return card && new Decimal(manualPriceAdjustment.adjustedAmount).lessThanOrEqualTo(card.balance);
       }
-      const totalBalance = availableCards.value.reduce((sum, card) => sum + parseFloat(card.balance), 0);
-      return manualPriceAdjustment.adjustedAmount <= totalBalance;
+      const totalBalance = availableCards.value.reduce((sum, card) => sum.plus(new Decimal(card.balance)), new Decimal(0));
+      return new Decimal(manualPriceAdjustment.adjustedAmount).lessThanOrEqualTo(totalBalance);
     }
     if (paymentPlan.value.error) return false;
   }
