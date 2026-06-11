@@ -14,9 +14,9 @@ export const loginSchema = {
 };
 
 export const refreshSchema = {
+  // refresh token 优先从 httpOnly cookie 读取，body 仅为兼容旧客户端，故不强制
   body: {
     type: 'object',
-    required: ['refreshToken'],
     properties: {
       refreshToken: { type: 'string', minLength: 1, maxLength: 256 }
     },

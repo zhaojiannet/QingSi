@@ -66,9 +66,16 @@ const router = createRouter({
 });
 
 // vue-router 5 风格：return 值代替 next() 回调
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   NProgress.start();
   const userStore = useUserStore();
+
+  // 访问受保护页且当前未登录时，先用 httpOnly cookie 里的 refresh token 尝试续期，
+  // 让"信任设备"在有效期内免去重新登录（cookie 缺失/过期则续期失败，落到下方跳登录）
+  if (!to.meta.isPublic && !userStore.isLoggedIn) {
+    await userStore.refreshAccessToken();
+  }
+
   const isLoggedIn = userStore.isLoggedIn;
   const userRole = userStore.userRole;
 

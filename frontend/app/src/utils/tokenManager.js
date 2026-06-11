@@ -62,7 +62,7 @@ class TokenManager {
   async checkAndRefreshToken() {
     const userStore = useUserStore();
     
-    if (!userStore.accessToken || !userStore.refreshToken) {
+    if (!userStore.accessToken) {
       return;
     }
 
@@ -90,14 +90,15 @@ class TokenManager {
   async refreshToken() {
     const userStore = useUserStore();
     
-    if (this.isRefreshing || !userStore.refreshToken) {
+    if (this.isRefreshing) {
       return;
     }
 
     this.isRefreshing = true;
 
     try {
-      const res = await refreshTokenApi({ refreshToken: userStore.refreshToken });
+      // refresh token 在 httpOnly cookie 中自动发送，无需手动传
+      const res = await refreshTokenApi();
       const { accessToken } = res;
       
       // 更新token

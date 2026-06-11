@@ -85,7 +85,13 @@ export default async function (fastify, opts) {
       config.voidEnabledAt = null;
     }
 
-    return config;
+    // 此接口公开（登录页需要读验证码开关），只返回白名单字段，
+    // 不能下发 bookingCode 等敏感字段（访问码另走 ADMIN 鉴权的 /booking-code）
+    return {
+      enableLoginCaptcha: config.enableLoginCaptcha,
+      enableTransactionVoid: config.enableTransactionVoid,
+      voidEnabledAt: config.voidEnabledAt,
+    };
   });
 
   // 更新配置 - 需要管理员权限

@@ -46,7 +46,11 @@ const fastify = Fastify({
       censor: '[REDACTED]',
     },
   },
-  trustProxy: true  // 信任反向代理的 X-Forwarded-* 头
+  // 反向代理跳数：直连时为 false（用真实连接 IP，避免伪造 X-Forwarded-For 绕过限流）；
+  // 部署在 nginx 等反代后时设 TRUST_PROXY=1，并由反代负责覆写 X-Forwarded-For
+  trustProxy: process.env.TRUST_PROXY
+    ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY === 'true')
+    : false
 });
 
 // CORS配置 - 基于环境变量
@@ -182,6 +186,11 @@ fastify.setErrorHandler(function (error, request, reply) {
   if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
     return reply.code(401).send({ message: '认证失败或已过期，请重新登录。' });
   }
+  // 限流（429）、请求体过大（413）等带客户端状态码的错误，按原状态码返回，
+  // 否则会被下面的 500 兜底覆盖（曾导致登录限流触发后返回 500 而非 429）
+  if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+    return reply.status(error.statusCode).send({ message: error.message });
+  }
   const errorMessage = error.message || '服务器内部发生未知错误';
   return reply.status(500).send({ message: errorMessage });
 });
@@ -192,19 +201,9 @@ const managerAndAdminAccess = { onRequest: [fastify.authenticate, fastify.hasRol
 const adminOnlyAccess = { onRequest: [fastify.authenticate, fastify.hasRole('ADMIN')] };
 
 // --- 路由注册 (最终版RBAC权限) ---
-// 认证路由 - 防暴力破解限制
-fastify.register(authRoutes, {
-  prefix: '/api/auth',
-  config: {
-    rateLimit: {
-      max: 10, // 每分钟10次，允许用户输错几次密码
-      timeWindow: '1 minute',
-      keyGenerator: (request) => {
-        return request.ip; // 基于IP的限制
-      }
-    }
-  }
-});
+// 认证路由 - 防暴力破解限流在 auth.js 内 per-route 配置
+// （register 选项里的 config.rateLimit 不会下沉到 plugin 内的路由，必须挂在每个路由上）
+fastify.register(authRoutes, { prefix: '/api/auth' });
 
 // 基础访问权限
 fastify.register(memberRoutes, { prefix: '/api/members', ...generalAccess });
