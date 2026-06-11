@@ -19,17 +19,16 @@ export default defineConfig({
   // 构建优化配置
   build: {
     target: 'esnext',
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true, // 生产环境移除console
-        drop_debugger: true, // 生产环境移除debugger
-        dead_code: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug']
-      }
-    },
-    rollupOptions: {
+    // minify 默认用 oxc（Vite 8 内置压缩器，无需安装 terser）
+    rolldownOptions: {
       output: {
+        // 生产构建移除 console 与 debugger
+        minify: {
+          compress: {
+            dropConsole: true,
+            dropDebugger: true,
+          },
+        },
         // 优化的代码分割策略
         manualChunks(id) {
           // 将 node_modules 的包分组

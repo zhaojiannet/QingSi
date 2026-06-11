@@ -54,7 +54,7 @@
              <el-dropdown @command="handleUserCommand" trigger="click">
               <span class="el-dropdown-link">
                 <el-avatar :icon="UserFilled" size="small" />
-                <span class="username">admin</span>
+                <span class="username">{{ userStore.userInfo?.username || '用户' }}</span>
                 <el-icon class="el-icon--right"><arrow-down /></el-icon>
               </span>
               <template #dropdown>
@@ -87,7 +87,7 @@
                 <el-dropdown @command="handleUserCommand">
                 <span class="el-dropdown-link">
                     <el-avatar :icon="UserFilled" size="small" />
-                    <span class="username">admin</span>
+                    <span class="username">{{ userStore.userInfo?.username || '用户' }}</span>
                 </span>
                 <template #dropdown>
                     <el-dropdown-menu>
@@ -268,7 +268,7 @@ watch(() => uiStore.fontSize, (newSize) => {
 }
 .logo-container { display: flex; align-items: center; gap: 12px; }
 .logo-img { height: 40px; }
-.logo-text { font-size: 22px; font-weight: 500; white-space: nowrap; color: #25686c; }
+.logo-text { font-size: 22px; font-weight: 500; white-space: nowrap; color: var(--el-color-primary); }
 
 .header-right {
   display: flex;
@@ -294,8 +294,8 @@ watch(() => uiStore.fontSize, (newSize) => {
   font-size: 1.2em;
   margin-right: 6px;
 }
-.nav-item:hover { color: #25686c; }
-.nav-item.is-active { color: #25686c; border-bottom-color: #25686c; font-weight: 600; padding-bottom: 6px; }
+.nav-item:hover { color: var(--el-color-primary); }
+.nav-item.is-active { color: var(--el-color-primary); border-bottom-color: var(--el-color-primary); font-weight: 600; padding-bottom: 6px; }
 
 .el-dropdown-link {
   cursor: pointer;
@@ -418,12 +418,12 @@ watch(() => uiStore.fontSize, (newSize) => {
 body { margin: 0; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif; }
 
 #nprogress .bar {
-  background: #25686c !important;
+  background: var(--el-color-primary) !important;
   height: 3px !important;
 }
 
 #nprogress .peg {
-  box-shadow: 0 0 10px #25686c, 0 0 5px #25686c !important;
+  box-shadow: 0 0 10px var(--el-color-primary), 0 0 5px var(--el-color-primary) !important;
 }
 
 .el-dropdown-menu .el-radio-group {
