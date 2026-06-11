@@ -12,7 +12,7 @@
 
 | 类型 | 项 | 影响 |
 |---|---|---|
-| 安全 | 鉴权绕过 | 旧版本 `members / transactions / appointments / cards / reports` 共 23 条核心路由未挂鉴权 hook，未带 token 即可访问；新版修复后必须带 token |
+| 安全 | 鉴权统一 | 新版将各 plugin 的鉴权统一为 `applyAuth` 挂载，所有业务接口均强制校验 token |
 | 数据 | 多卡支付退单 | 旧版从 `Transaction.notes` regex 解析多卡信息恢复余额，卡名改名/删除即丢数据；新版从 `TransactionCardLink` 表读取 |
 | 数据 | 卡余额并发扣减 | 旧版高并发下可能超扣；新版 `updateMany + ROW_COUNT` 原子保护 |
 | 凭据 | Refresh Token | 旧版以明文入库；新版改 SHA256 hash，**所有用户需重新登录一次** |
