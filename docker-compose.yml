@@ -24,7 +24,7 @@ services:
       echo '=== 应用数据库迁移 ===' &&
       npx prisma migrate deploy &&
       echo '=== 初始化管理员账户 ===' &&
-      node init-admin.js || echo '管理员账户可能已存在' &&
+      npx tsx init-admin.js &&
       echo '=== 启动应用 ===' &&
       pnpm dev
       "
