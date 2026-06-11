@@ -1,6 +1,7 @@
 // backend/app/src/routes/reports.js
 
 import prisma from '../db/prisma.js';
+import { Prisma } from '../generated/prisma/client.ts';
 import Decimal from 'decimal.js';
 import {
   businessReportSchema,
@@ -12,43 +13,42 @@ import {
   pendingStatsSchema
 } from '../schemas/reports.js';
 import { applyAuth } from '../utils/applyAuth.js';
+import { shopDayRange } from '../utils/shopTime.js';
 
 export default async function (fastify, opts) {
   applyAuth(fastify, opts);
   // --- 营业报表 ---
   fastify.get('/business', { schema: businessReportSchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const { start, end } = shopDayRange(startDate, endDate);
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
-    end.setHours(23, 59, 59, 999);
 
-    // 查询所有交易记录，排除挂账清账记录
+    // 查询窗口内全部交易；清账记录也要取（卡耗需要统计用卡清账的扣减）
     const transactions = await prisma.transaction.findMany({
       where: {
-        transactionTime: { gte: start, lte: end },
-        transactionType: { not: 'PENDING_CLEAR' }  // 排除挂账清账记录
+        transactionTime: { gte: start, lte: end }
       },
     });
 
-    // 判断是否为办卡/充值记录
-    const isCardPurchase = (t) => t.summary && t.summary.startsWith('办理【');
+    // 判断是否为办卡/充值记录（历史数据已由 migration 回填类型）
+    const isCardPurchase = (t) => t.transactionType === 'CARD_PURCHASE';
 
-    // 总消费：统计实际服务消费，排除办卡/充值记录（避免重复计算）
-    // 挂账的 actualPaidAmount 是负数，需要取绝对值才是真实消费金额
-    const totalConsumption = transactions
-      .filter(t => !isCardPurchase(t))
-      .reduce((sum, t) => sum.plus(new Decimal(Math.abs(t.actualPaidAmount))), new Decimal(0));
+    // 总消费按消费发生日统计：挂账当天计入（金额为负取绝对值），
+    // 清账日不再计（排除 PENDING_CLEAR，否则一笔挂账计两次），排除办卡/充值
+    const consumptionTransactions = transactions
+      .filter(t => t.transactionType !== 'PENDING_CLEAR' && !isCardPurchase(t));
+    const totalConsumption = consumptionTransactions
+      .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount).abs()), new Decimal(0));
 
-    // 会员卡消费：只统计会员卡支付的实际消费（排除办卡记录）
+    // 会员卡消费（卡耗）= 卡余额真实扣减：正常卡消费 + 用卡清账（清账日卡才扣钱）
     const cardConsumption = transactions
-      .filter(t => t.paymentMethod === 'MEMBER_CARD' && t.transactionType === 'NORMAL' && !isCardPurchase(t))
+      .filter(t => t.paymentMethod === 'MEMBER_CARD' && !isCardPurchase(t)
+        && (t.transactionType === 'NORMAL' || t.transactionType === 'PENDING_CLEAR'))
       .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0));
 
-    // 总客数：排除办卡记录
-    const consumptionTransactions = transactions.filter(t => !isCardPurchase(t));
+    // 总客数：按消费发生日计，清账不算一次到店
     const totalCustomers = new Set(consumptionTransactions.map(t => t.memberId || t.id)).size;
 
     // 充值金额：统计办卡/充值记录
@@ -56,8 +56,14 @@ export default async function (fastify, opts) {
       .filter(t => isCardPurchase(t))
       .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount)), new Decimal(0));
 
+    // 当期新增挂账（含其后已结清的）：总消费里属于"未收款生意"的部分，单独返回供前端标注
+    const pendingAmount = transactions
+      .filter(t => t.transactionType === 'PENDING')
+      .reduce((sum, t) => sum.plus(new Decimal(t.actualPaidAmount).abs()), new Decimal(0));
+
     return {
-      totalRevenue: totalConsumption.toFixed(2),  // 总消费（服务消费）
+      totalRevenue: totalConsumption.toFixed(2),  // 总消费（服务消费，按发生日，含挂账）
+      pendingAmount: pendingAmount.toFixed(2),  // 当期新增挂账（未收款部分）
       cardConsumption: cardConsumption.toFixed(2),  // 会员卡消费（卡耗）
       totalRecharge: totalRecharge.toFixed(2),  // 充值金额
       totalCustomers,  // 总客数
@@ -74,49 +80,42 @@ export default async function (fastify, opts) {
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit) || 25));  // 最大100条
     const skip = (page - 1) * limit;
 
-    // 构建时间筛选条件
-    let timeFilter = {};
+    // 构建时间筛选条件（SQL 片段，无日期时不过滤）
+    let timeCond = Prisma.empty;
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      timeFilter = {
-        transaction: {
-          transactionTime: { gte: start, lte: end }
-        }
-      };
+      const { start, end } = shopDayRange(startDate, endDate);
+      timeCond = Prisma.sql`WHERE t.transactionTime >= ${start} AND t.transactionTime <= ${end}`;
     }
 
-    const result = await prisma.transactionItem.groupBy({
-      by: ['serviceId'],
-      _sum: { price: true },
-      _count: { _all: true },
-      where: timeFilter,
-      orderBy: { _sum: { price: 'desc' } },
-      skip,
-      take: limit,
-    });
+    // 销售额必须按 单价 × 数量 计算，groupBy 的 _sum 无法表达 price*quantity，
+    // 改在数据库层 SUM(price * quantity)（DECIMAL 精确运算），
+    // 返回行数不超过服务数，不再把全量交易明细拉到应用层
+    const grouped = await prisma.$queryRaw`
+      SELECT ti.serviceId AS serviceId,
+             SUM(ti.price * ti.quantity) AS totalSales,
+             SUM(ti.quantity) AS totalCount
+      FROM TransactionItem ti
+      JOIN Transaction t ON t.id = ti.transactionId
+      ${timeCond}
+      GROUP BY ti.serviceId
+      ORDER BY totalSales DESC, serviceId ASC
+    `;
 
-    // 获取总数
-    const totalResult = await prisma.transactionItem.groupBy({
-      by: ['serviceId'],
-      where: timeFilter,
-      _count: { _all: true },
-    });
-    const total = totalResult.length;
+    const total = grouped.length;
+    const pageEntries = grouped.slice(skip, skip + limit);
 
-    const serviceIds = result.map(item => item.serviceId);
+    const serviceIds = pageEntries.map(row => row.serviceId);
     const services = await prisma.service.findMany({
       where: { id: { in: serviceIds } },
       select: { id: true, name: true }
     });
     const serviceMap = new Map(services.map(s => [s.id, s.name]));
-    
-    const data = result.map(item => ({
-      serviceId: item.serviceId,
-      serviceName: serviceMap.get(item.serviceId) || '未知服务',
-      totalSales: new Decimal(item._sum.price).toFixed(2),
-      totalCount: item._count._all,
+
+    const data = pageEntries.map(row => ({
+      serviceId: row.serviceId,
+      serviceName: serviceMap.get(row.serviceId) || '未知服务',
+      totalSales: new Decimal(row.totalSales).toFixed(2),
+      totalCount: Number(row.totalCount),
     }));
 
     return {
@@ -214,44 +213,41 @@ export default async function (fastify, opts) {
     // 构建时间筛选条件
     let timeFilter = { memberId: { not: null } };
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const { start, end } = shopDayRange(startDate, endDate);
       timeFilter = {
         ...timeFilter,
         transactionTime: { gte: start, lte: end }
       };
     }
 
-    const memberConsumptions = await prisma.transaction.groupBy({
+    // 消费排行只统计真实消费：排除挂账（PENDING 负数）与办卡充值（CARD_PURCHASE），
+    // 否则充值大户会被当成消费大户、欠账会员排名偏低。
+    // 聚合下沉到数据库（每会员一行），不再全量拉交易明细
+    const grouped = await prisma.transaction.groupBy({
       by: ['memberId'],
+      where: {
+        ...timeFilter,
+        transactionType: { notIn: ['PENDING', 'CARD_PURCHASE'] },
+      },
       _sum: { actualPaidAmount: true },
-      where: timeFilter,
-      orderBy: { _sum: { actualPaidAmount: 'desc' } },
-      skip,
-      take: limit,
+      orderBy: [{ _sum: { actualPaidAmount: 'desc' } }, { memberId: 'asc' }],
     });
 
-    // 获取总数
-    const totalResult = await prisma.transaction.groupBy({
-      by: ['memberId'],
-      where: timeFilter,
-      _count: { _all: true },
-    });
-    const total = totalResult.length;
+    const total = grouped.length;
+    const pageEntries = grouped.slice(skip, skip + limit);
 
-    const memberIds = memberConsumptions.map(m => m.memberId);
+    const memberIds = pageEntries.map(g => g.memberId);
     const members = await prisma.member.findMany({
       where: { id: { in: memberIds } },
       select: { id: true, name: true, phone: true }
     });
     const memberMap = new Map(members.map(m => [m.id, m]));
-    
-    const data = memberConsumptions.map(item => ({
-      memberId: item.memberId,
-      memberName: memberMap.get(item.memberId)?.name || '未知会员',
-      memberPhone: memberMap.get(item.memberId)?.phone || '',
-      totalConsumption: new Decimal(item._sum.actualPaidAmount).toFixed(2),
+
+    const data = pageEntries.map(g => ({
+      memberId: g.memberId,
+      memberName: memberMap.get(g.memberId)?.name || '未知会员',
+      memberPhone: memberMap.get(g.memberId)?.phone || '',
+      totalConsumption: new Decimal(g._sum.actualPaidAmount).toFixed(2),
     }));
 
     return {
@@ -269,18 +265,22 @@ export default async function (fastify, opts) {
   // --- 核心修改：生日提醒接口，增加消费排名 ---
   fastify.get('/birthday-reminders', async (request, reply) => {
     // --- 第一步：获取所有会员的消费排名 ---
-    const memberConsumptions = await prisma.transaction.groupBy({
+    // 与消费排行统计标准一致：排除挂账（PENDING）与办卡充值（CARD_PURCHASE），避免排名失真。
+    // 聚合下沉到数据库（每会员一行），结果已按消费额降序，下标即排名
+    const grouped = await prisma.transaction.groupBy({
       by: ['memberId'],
+      where: {
+        memberId: { not: null },
+        transactionType: { notIn: ['PENDING', 'CARD_PURCHASE'] },
+      },
       _sum: { actualPaidAmount: true },
-      where: { memberId: { not: null } },
-      orderBy: { _sum: { actualPaidAmount: 'desc' } },
+      orderBy: [{ _sum: { actualPaidAmount: 'desc' } }, { memberId: 'asc' }],
     });
-    
-    // 创建一个 Map 用于快速查找消费数据和排名
+
     const consumptionMap = new Map();
-    memberConsumptions.forEach((item, index) => {
-      consumptionMap.set(item.memberId, {
-        totalConsumption: new Decimal(item._sum.actualPaidAmount).toFixed(2),
+    grouped.forEach((g, index) => {
+      consumptionMap.set(g.memberId, {
+        totalConsumption: new Decimal(g._sum.actualPaidAmount).toFixed(2),
         rank: index + 1, // 排名从1开始
       });
     });
@@ -328,12 +328,10 @@ export default async function (fastify, opts) {
   // --- 新增1：支付方式构成分析 ---
   fastify.get('/payment-summary', { schema: paymentSummarySchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const { start, end } = shopDayRange(startDate, endDate);
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
-    end.setHours(23, 59, 59, 999);
 
     const result = await prisma.transaction.groupBy({
       by: ['paymentMethod'],
@@ -375,12 +373,10 @@ export default async function (fastify, opts) {
   // --- 新增2：会员卡销售分析 ---
   fastify.get('/card-sales-summary', { schema: cardSalesSummarySchema }, async (request, reply) => {
     const { startDate, endDate } = request.query;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const { start, end } = shopDayRange(startDate, endDate);
     if (start > end) {
       return reply.code(400).send({ message: '开始日期不能晚于结束日期' });
     }
-    end.setHours(23, 59, 59, 999);
 
     // 改用Card表的issueDate统计办卡情况
     const cards = await prisma.card.findMany({

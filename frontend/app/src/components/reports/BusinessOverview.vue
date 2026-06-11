@@ -3,6 +3,9 @@
     <el-row :gutter="20" v-loading="businessReport.loading" class="stats-cards">
       <el-col :span="5" :xs="12">
         <el-statistic title="总消费 (元)" :value="Number(businessReport.data.totalRevenue) || 0" :precision="2" />
+        <el-text v-if="Number(businessReport.data.pendingAmount) > 0" size="small" type="info">
+          含挂账 ¥{{ businessReport.data.pendingAmount }}
+        </el-text>
       </el-col>
       <el-col :span="5" :xs="12">
         <el-statistic title="卡耗 (元)" :value="Number(businessReport.data.cardConsumption) || 0" :precision="2" />
@@ -271,7 +274,7 @@ defineEmits(['void']);
 const memberSearch = ref('');
 const businessReport = reactive({
   loading: false,
-  data: { totalRevenue: 0, cardConsumption: 0, totalRecharge: 0, totalCustomers: 0, averageOrderValue: 0 }
+  data: { totalRevenue: 0, pendingAmount: 0, cardConsumption: 0, totalRecharge: 0, totalCustomers: 0, averageOrderValue: 0 }
 });
 const transactionList = reactive({
   loading: false,
