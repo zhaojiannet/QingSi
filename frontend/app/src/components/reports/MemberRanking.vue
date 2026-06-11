@@ -1,5 +1,8 @@
 <template>
   <div>
+    <div style="margin-bottom: 8px;">
+      <el-text size="small" type="info">按实收统计，未结挂账不计入</el-text>
+    </div>
     <el-table :data="state.data" v-loading="state.loading" stripe show-overflow-tooltip style="width: 100%">
       <el-table-column type="index" label="排名" width="80" />
       <el-table-column prop="memberName" label="会员姓名">
