@@ -17,7 +17,7 @@
           <el-tag :type="memberStatusTagType(member.status)" size="small">{{ memberStatusText(member.status) }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="注册日期" :span="2">{{ formatDateInAppTimeZone(member.registrationDate) }}</el-descriptions-item>
-        <el-descriptions-item label="生日">{{ formatDateInAppTimeZone(member.birthday) }}</el-descriptions-item>
+        <el-descriptions-item label="生日">{{ formatPureDate(member.birthday) }}</el-descriptions-item>
         <el-descriptions-item label="最后消费">
           <el-tooltip
             v-if="member.lastVisitDate"
@@ -228,7 +228,7 @@ import { ElMessage } from 'element-plus';
 import Decimal from 'decimal.js';
 import { memberStatusText, memberStatusTagType, cardStatusText, cardStatusTagType, getCardDisplayName } from '@/utils/formatters.js';
 import { PAYMENT_METHODS, ISSUE_CARD_PAYMENT_OPTIONS } from '@/constants/payment.js';
-import { formatDateInAppTimeZone, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
+import { formatDateInAppTimeZone, formatPureDate, formatShortDateInAppTimeZone, formatFullDateTimeInAppTimeZone } from '@/utils/date.js';
 import { formatAmount, formatCurrency, formatDiscountRate, toDecimal } from '@/utils/currency.js';
 import PendingPaymentsSection from './PendingPaymentsSection.vue';
 

@@ -70,6 +70,7 @@ import { ref, computed, onMounted, nextTick } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '@/api/index.js';
 import QRCode from 'qrcode';
+import { formatInAppTimeZone } from '@/utils/date.js';
 
 const loading = ref(false);
 const bookingCode = ref('');
@@ -85,13 +86,8 @@ const bookingUrl = computed(() => {
 
 const formatTime = (dateStr) => {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  // 走统一时区工具，按用户时区显示年月日时分（不含秒）
+  return formatInAppTimeZone(dateStr, { second: undefined });
 };
 
 const generateQRCode = async () => {

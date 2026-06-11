@@ -4,7 +4,13 @@ export function useReportDateRange() {
   const dateRange = ref([]);
   const quickDate = ref('today');
 
-  const formatDate = (d) => d.toISOString().split('T')[0];
+  // 用本地日期分量拼接，避免 toISOString() 转 UTC 后日期前移一天（UTC+8 早 8 点前）
+  const formatDate = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
 
   const applyQuickDate = (value) => {
     const today = new Date();

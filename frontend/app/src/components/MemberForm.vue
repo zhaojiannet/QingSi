@@ -20,7 +20,7 @@
         </el-radio-group>
       </el-form-item>
       <el-form-item label="生日" prop="birthday">
-        <el-date-picker v-model="formData.birthday" type="date" placeholder="选择生日" style="width: 100%;"/>
+        <el-date-picker v-model="formData.birthday" type="date" value-format="YYYY-MM-DD" placeholder="选择生日" style="width: 100%;"/>
       </el-form-item>
       
       <el-form-item v-if="isEditMode" label="账户状态" prop="status">
@@ -128,6 +128,9 @@ const emit = defineEmits(['success']);
 const open = (memberData = null) => {
   if (memberData) {
     Object.assign(formData, memberData);
+    // 后端返回 ISO UTC 串（生日存为 UTC 零点），截前 10 位还原纯日期；
+    // 否则不动生日直接保存时，整串会被后端 schema 的 format: 'date' 拒掉
+    formData.birthday = memberData.birthday ? memberData.birthday.slice(0, 10) : null;
   } else {
     Object.assign(formData, getInitialFormData());
   }

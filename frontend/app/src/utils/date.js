@@ -1,7 +1,7 @@
 // frontend/app/src/utils/date.js
 // 统一使用时区检测系统，避免硬编码
 
-import { getUserTimezone, formatDate } from './timezone-unified';
+import { getUserTimezone } from './timezone-unified';
 
 /**
  * 使用统一时区系统格式化日期和时间
@@ -42,6 +42,32 @@ export function formatDateInAppTimeZone(isoString) {
 }
 
 /**
+ * 纯日期字段（如生日）：后端存为 UTC 零点，必须按 UTC 取日历日，
+ * 若按用户时区格式化，UTC 负偏移时区会前移一天
+ */
+export function formatPureDate(isoString) {
+  if (!isoString) return '无记录';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'UTC'
+  }).format(new Date(isoString));
+}
+
+/**
+ * 纯日期字段仅取月日（如生日提醒），同上按 UTC 读取
+ */
+export function formatPureMonthDay(isoString) {
+  if (!isoString) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'UTC'
+  }).format(new Date(isoString));
+}
+
+/**
  * 仅格式化时间部分 - 统一时区
  */
 export function formatTimeInAppTimeZone(isoString) {
@@ -66,7 +92,7 @@ export function formatShortDateInAppTimeZone(isoString) {
         month: '2-digit',
         day: '2-digit',
         timeZone: getUserTimezone()
-    }).format(date).replace(/\//g, '/');
+    }).format(date);
 }
 
 /**
@@ -85,6 +111,6 @@ export function formatFullDateTimeInAppTimeZone(isoString) {
         hour12: false,
         timeZone: getUserTimezone()
     }).format(date);
-    
-    return formatted.replace(/\//g, '/');
+
+    return formatted;
 }

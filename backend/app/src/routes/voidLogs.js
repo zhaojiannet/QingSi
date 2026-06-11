@@ -3,6 +3,7 @@
 import prisma from '../db/prisma.js';
 import Decimal from 'decimal.js';
 import { voidLogsQuerySchema } from '../schemas/voidLogs.js';
+import { shopDayRange } from '../utils/shopTime.js';
 
 export default async function (fastify, opts) {
   // 获取撤销日志列表 - 需要 ADMIN 或 MANAGER 权限
@@ -25,10 +26,7 @@ export default async function (fastify, opts) {
 
     // 日期范围过滤
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const { start, end } = shopDayRange(startDate, endDate);
       where.voidedAt = { gte: start, lte: end };
     }
 
