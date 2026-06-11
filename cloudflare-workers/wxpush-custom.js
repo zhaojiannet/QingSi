@@ -19,7 +19,7 @@ export default {
         }
       }
 
-      if (!requestToken || requestToken !== env.API_TOKEN) {
+      if (!requestToken || !timingSafeEqual(requestToken, env.API_TOKEN)) {
         return jsonResponse({ msg: 'Invalid token' }, 403);
       }
 
@@ -77,6 +77,18 @@ export default {
     return new Response('WxPush Custom - OK', { status: 200 });
   }
 };
+
+// 常数时间字符串比较，避免 token 校验被时序攻击逐字符推断
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
