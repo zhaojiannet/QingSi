@@ -1,7 +1,8 @@
 // backend/app/src/server.js
 
-import dotenv from 'dotenv';
-dotenv.config();
+// dotenv 必须用副作用 import：ESM 下所有 import 先于模块体执行，
+// 若用 dotenv.config() 则 db/prisma.js 读 DATABASE_URL 时尚未加载
+import 'dotenv/config';
 
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
