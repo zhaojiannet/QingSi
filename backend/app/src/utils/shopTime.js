@@ -18,3 +18,26 @@ export function shopTodayRange() {
   const dateStr = nowShop.toISOString().slice(0, 10);
   return shopDayRange(dateStr, dateStr);
 }
+
+// 最近 n 个月（含当月）：门店本地月份 key 列表 + 覆盖整个窗口的 UTC 起止时刻
+export function shopMonthWindow(n) {
+  const nowShop = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const y = nowShop.getUTCFullYear();
+  const m = nowShop.getUTCMonth();
+  const months = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - i, 1));
+    months.push(d.toISOString().slice(0, 7));
+  }
+  const start = new Date(`${months[0]}-01T00:00:00.000${SHOP_TZ}`);
+  // 上界取当月最后一刻（门店本地），与 shopDayRange 的整日边界口径一致，
+  // 否则补录时间晚于"现在"的交易会被漏计
+  const nextMonth = new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0, 7);
+  const end = new Date(new Date(`${nextMonth}-01T00:00:00.000${SHOP_TZ}`).getTime() - 1);
+  return { months, start, end };
+}
+
+// 交易时刻 → 门店本地月份 key "YYYY-MM"
+export function shopMonthKey(date) {
+  return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 7);
+}

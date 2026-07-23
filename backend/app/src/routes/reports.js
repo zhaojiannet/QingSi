@@ -5,6 +5,7 @@ import { Prisma } from '../generated/prisma/client.ts';
 import Decimal from 'decimal.js';
 import {
   businessReportSchema,
+  monthlyBusinessSchema,
   paymentSummarySchema,
   cardSalesSummarySchema,
   serviceRankingSchema,
@@ -13,7 +14,7 @@ import {
   pendingStatsSchema
 } from '../schemas/reports.js';
 import { applyAuth } from '../utils/applyAuth.js';
-import { shopDayRange } from '../utils/shopTime.js';
+import { shopDayRange, shopMonthWindow, shopMonthKey } from '../utils/shopTime.js';
 
 export default async function (fastify, opts) {
   applyAuth(fastify, opts);
@@ -69,6 +70,69 @@ export default async function (fastify, opts) {
       totalCustomers,  // 总客数
       averageOrderValue: totalCustomers > 0 ? totalConsumption.div(totalCustomers).toFixed(2) : "0.00",  // 客单价
     };
+  });
+
+  // 月度营业对比：最近 12 个月，口径与 /business 一致
+  // （总消费按发生日、含挂账取绝对值、排除清账与办卡；充值只算 CARD_PURCHASE；
+  //   卡耗 = 正常卡消费 + 用卡清账；客数按消费发生日去重，清账不算到店）
+  fastify.get('/business/monthly', { schema: monthlyBusinessSchema }, async () => {
+    const { months, start, end } = shopMonthWindow(12);
+    const [transactions, members] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { transactionTime: { gte: start, lte: end } },
+        select: { id: true, transactionTime: true, transactionType: true, actualPaidAmount: true, paymentMethod: true, memberId: true },
+      }),
+      prisma.member.findMany({
+        where: { registrationDate: { gte: start, lte: end } },
+        select: { registrationDate: true },
+      }),
+    ]);
+
+    const makeBucket = () => ({
+      revenue: new Decimal(0), recharge: new Decimal(0), cardConsumption: new Decimal(0),
+      pendingAdded: new Decimal(0), pendingCleared: new Decimal(0),
+      customers: new Set(), newMembers: 0,
+    });
+    const buckets = new Map(months.map(m => [m, makeBucket()]));
+
+    for (const t of transactions) {
+      const b = buckets.get(shopMonthKey(t.transactionTime));
+      if (!b) continue;
+      const amount = new Decimal(t.actualPaidAmount);
+      const isCardPurchase = t.transactionType === 'CARD_PURCHASE';
+      if (isCardPurchase) {
+        b.recharge = b.recharge.plus(amount);
+      } else if (t.transactionType !== 'PENDING_CLEAR') {
+        b.revenue = b.revenue.plus(amount.abs());
+        b.customers.add(t.memberId || t.id);
+      }
+      if (t.paymentMethod === 'MEMBER_CARD' && !isCardPurchase
+        && (t.transactionType === 'NORMAL' || t.transactionType === 'PENDING_CLEAR')) {
+        b.cardConsumption = b.cardConsumption.plus(amount);
+      }
+      if (t.transactionType === 'PENDING') b.pendingAdded = b.pendingAdded.plus(amount.abs());
+      if (t.transactionType === 'PENDING_CLEAR') b.pendingCleared = b.pendingCleared.plus(amount.abs());
+    }
+    for (const m of members) {
+      const b = buckets.get(shopMonthKey(m.registrationDate));
+      if (b) b.newMembers++;
+    }
+
+    return months.map(m => {
+      const b = buckets.get(m);
+      const customers = b.customers.size;
+      return {
+        month: m,
+        totalRevenue: b.revenue.toFixed(2),
+        totalRecharge: b.recharge.toFixed(2),
+        cardConsumption: b.cardConsumption.toFixed(2),
+        pendingAdded: b.pendingAdded.toFixed(2),
+        pendingCleared: b.pendingCleared.toFixed(2),
+        totalCustomers: customers,
+        averageOrderValue: customers > 0 ? b.revenue.div(customers).toFixed(2) : '0.00',
+        newMembers: b.newMembers,
+      };
+    });
   });
 
   // 项目销售排行榜

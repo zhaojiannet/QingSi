@@ -29,6 +29,27 @@ const paginationOnly = {
 };
 
 export const businessReportSchema = { querystring: dateRangeQuery };
+export const monthlyBusinessSchema = {
+  response: {
+    200: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          month: { type: 'string' },
+          totalRevenue: { type: 'string' },
+          totalRecharge: { type: 'string' },
+          cardConsumption: { type: 'string' },
+          pendingAdded: { type: 'string' },
+          pendingCleared: { type: 'string' },
+          totalCustomers: { type: 'integer' },
+          averageOrderValue: { type: 'string' },
+          newMembers: { type: 'integer' }
+        }
+      }
+    }
+  }
+};
 export const paymentSummarySchema = { querystring: dateRangeQuery };
 export const cardSalesSummarySchema = { querystring: dateRangeQuery };
 export const serviceRankingSchema = { querystring: optionalDateRangePagination };

@@ -11,6 +11,14 @@ export const getBusinessReport = (params) => {
   });
 };
 
+// 获取月度营业对比（最近 12 个月）
+export const getMonthlyBusinessReport = () => {
+  return request({
+    url: '/reports/business/monthly',
+    method: 'get',
+  });
+};
+
 // 获取项目销售排行榜
 export const getServiceRanking = (params) => {
   return request({

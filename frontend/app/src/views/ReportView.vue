@@ -41,6 +41,10 @@
         />
       </el-tab-pane>
 
+      <el-tab-pane label="月度对比" name="monthlyComparison" lazy>
+        <MonthlyComparison />
+      </el-tab-pane>
+
       <el-tab-pane label="支付统计" name="paymentSummary" lazy>
         <PaymentSummary :date-range="dateRange" />
       </el-tab-pane>
@@ -151,6 +155,7 @@ import { useVoidTransaction } from '@/composables/useVoidTransaction.js';
 import { useTransactionFormatters } from '@/composables/useTransactionFormatters.js';
 import { PAYMENT_METHODS } from '@/constants/payment.js';
 import BusinessOverview from '@/components/reports/BusinessOverview.vue';
+import MonthlyComparison from '@/components/reports/MonthlyComparison.vue';
 import PaymentSummary from '@/components/reports/PaymentSummary.vue';
 import CardSalesSummary from '@/components/reports/CardSalesSummary.vue';
 import ServiceRanking from '@/components/reports/ServiceRanking.vue';
