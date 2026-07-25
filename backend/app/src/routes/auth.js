@@ -28,6 +28,8 @@ export default async function (fastify, opts) {
   // 挂在 register 选项里不会下沉到 plugin 内的路由（@fastify/rate-limit 只读 per-route config）
   const loginRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
   const captchaRateLimit = { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } };
+  // 续期不是爆破面（拿不到 cookie 就必然 401），限额跟登录共用会让同门店多设备互相挤掉线
+  const refreshRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } };
 
   fastify.get('/captcha', captchaRateLimit, async (request, reply) => {
     const captcha = svgCaptcha.create({
@@ -86,7 +88,7 @@ export default async function (fastify, opts) {
     return { accessToken };
   });
   
-  fastify.post('/refresh', { schema: refreshSchema, ...loginRateLimit }, async (request, reply) => {
+  fastify.post('/refresh', { schema: refreshSchema, ...refreshRateLimit }, async (request, reply) => {
     // 优先从 httpOnly cookie 读取，body 仅兼容旧客户端
     const refreshToken = request.cookies?.refreshToken || request.body?.refreshToken;
     if (!refreshToken) {
