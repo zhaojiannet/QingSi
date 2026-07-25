@@ -266,15 +266,17 @@ watch(() => uiStore.fontSize, (newSize) => {
   display: flex;
   align-items: center;
 }
-.logo-container { display: flex; align-items: center; gap: 12px; }
+/* 空间不够时先压缩 logo，否则右侧用户区会被顶出窗口外点不到 */
+.logo-container { display: flex; align-items: center; gap: 12px; min-width: 0; overflow: hidden; }
 .logo-img { height: 40px; }
-.logo-text { font-size: 22px; font-weight: 500; white-space: nowrap; color: var(--el-color-primary); }
+.logo-text { font-size: 22px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--el-color-primary); }
 
 .header-right {
   display: flex;
   align-items: center;
   gap: 25px;
-  margin-left: auto; 
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .custom-nav { display: flex; align-items: center; height: 100%; }
 .nav-item {
