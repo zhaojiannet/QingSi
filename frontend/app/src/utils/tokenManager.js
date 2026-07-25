@@ -107,8 +107,10 @@ class TokenManager {
       console.log('Token自动刷新成功');
     } catch (error) {
       console.error('Token自动刷新失败:', error);
-      // 刷新失败，清除所有状态并重定向到登录页
-      userStore.clearTokensAndRedirect();
+      // 只有刷新令牌确实失效（401）才登出；网络抖动、限流下次定时检查会重试
+      if (error.response?.status === 401) {
+        userStore.clearTokensAndRedirect();
+      }
     } finally {
       this.isRefreshing = false;
     }

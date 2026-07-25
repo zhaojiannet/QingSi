@@ -95,10 +95,12 @@ service.interceptors.response.use(
             processQueue(null, accessToken);
           })
           .catch(err => {
-            // 刷新失败，清空所有状态并重定向到登录页
             processQueue(err, null);
-            userStore.clearTokensAndRedirect();
-            ElMessage.error('您的会话已过期，请重新登录。');
+            // 只有刷新令牌确实失效（401）才登出；网络抖动、429 限流不该清掉登录态
+            if (err.response?.status === 401) {
+              userStore.clearTokensAndRedirect();
+              ElMessage.error('您的会话已过期，请重新登录。');
+            }
             reject(err);
           })
           .finally(() => {
@@ -107,6 +109,12 @@ service.interceptors.response.use(
       });
     }
     
+    // 续期接口的失败不弹提示：未登录时打开受保护页也会走这里（路由守卫先试续期），
+    // 弹「刷新令牌缺失」是噪音；真正失效由上面的登出流程提示
+    if (originalRequest.url === '/auth/refresh') {
+      return Promise.reject(error);
+    }
+
     // 处理其他所有非401错误
     const message = error.response?.data?.message || '服务器发生未知错误';
     const messageType = error.response?.status >= 500 ? 'error' : 'warning';
