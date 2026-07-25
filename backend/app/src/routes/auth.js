@@ -75,6 +75,7 @@ export default async function (fastify, opts) {
       data: {
         token: hashRefreshToken(refreshTokenValue),
         expiresAt: refreshTokenExpiresAt,
+        validityDays: refreshTokenValidityDays,
         userId: user.id,
       },
     });
@@ -104,6 +105,14 @@ export default async function (fastify, opts) {
       reply.clearCookie('refreshToken', refreshCookieOptions());
       return reply.code(401).send({ message: '刷新令牌无效或已过期' });
     }
+
+    // 滑动续期：每次续期把有效期顺延回完整时长，持续使用就不会因固定期限到点被踢
+    const validitySeconds = storedToken.validityDays * 24 * 60 * 60;
+    await prisma.refreshToken.update({
+      where: { id: storedToken.id },
+      data: { expiresAt: new Date(Date.now() + validitySeconds * 1000) },
+    });
+    reply.setCookie('refreshToken', refreshToken, refreshCookieOptions(validitySeconds));
 
     const user = storedToken.user;
     const newAccessToken = fastify.jwt.sign(

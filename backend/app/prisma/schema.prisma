@@ -195,6 +195,8 @@ model RefreshToken {
   id        String   @id @default(cuid())
   token     String   @unique
   expiresAt DateTime
+  // 滑动续期需要知道原始时长（信任设备 7 天 / 否则 1 天），无法从 expiresAt 反推
+  validityDays Int   @default(1)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
