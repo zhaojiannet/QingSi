@@ -125,8 +125,9 @@ fastify.register(fastifyJwt, { secret: process.env.JWT_SECRET });
 // 全局速率限制 - 合理化设置
 fastify.register(fastifyRateLimit, {
   global: true,
-  max: 200, // 每分钟200次，满足正常页面浏览需求
-  timeWindow: '1 minute',
+  // 按客户端 IP 计数，同一门店多设备共用出口 IP 时会共享额度，调大靠 RATE_LIMIT_MAX
+  max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
+  timeWindow: process.env.RATE_LIMIT_WINDOW || '1 minute',
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
   addHeaders: {
