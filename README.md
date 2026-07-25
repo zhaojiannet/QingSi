@@ -203,9 +203,38 @@ WXPUSH_TOKEN=your-api-token
 
 ## 生产部署
 
-### Docker 部署
+三种方式，按服务器现状选一种：
 
-同"快速开始"。
+| 方式 | 适合谁 |
+| --- | --- |
+| Docker Compose | 一台裸服务器，想一条命令起全套 |
+| 一键推送脚本 | 服务器上已有运维面板，站点和证书归面板管 |
+| 传统部署 | 不想用 Docker |
+
+### Docker Compose
+
+前端构建成静态文件由 nginx 提供并反代 `/api`，后端以生产模式启动：
+
+```bash
+docker network create docker-net          # 首次
+cp backend/app/.env.example backend/app/.env
+vi backend/app/.env                       # 至少填 DATABASE_URL、JWT_SECRET、SESSION_SECRET、CORS_ORIGIN
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+前端在 8080 端口。生产模式下 refresh token 的 cookie 带 Secure 标记，**需要在它前面再加一层 HTTPS 反代**，纯 HTTP 访问浏览器会拒绝保存 cookie，表现为登录后立刻掉线。
+
+### 一键推送脚本
+
+本地构建后 rsync 推到服务器，自动跑数据库迁移并重启，带回滚快照和健康检查：
+
+```bash
+cp scripts/deploy.env.example scripts/deploy.env
+vi scripts/deploy.env   # 填服务器地址和路径，该文件不入版本库
+./scripts/deploy.sh     # 之后每次部署
+```
+
+完整说明见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ### 传统部署（nginx + Node.js）
 
