@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE `refreshtoken` ADD COLUMN `validityDays` INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE `RefreshToken` ADD COLUMN `validityDays` INTEGER NOT NULL DEFAULT 1;
