@@ -10,6 +10,7 @@
 .env
 **/.env
 !**/.env.example
+scripts/deploy.env
 
 # Claude
 .claude/
