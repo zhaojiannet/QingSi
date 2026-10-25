@@ -1,0 +1,37 @@
+# 服务器上用：不挂源码，只跑 Dockerfile 的 runtime 段，用 node 起 NODE_ENTRY
+name: ${COMPOSE_PROJECT_NAME:?请先在 .env 里设置 COMPOSE_PROJECT_NAME}
+
+services:
+  app:
+    # 不写 image 时镜像名和开发的 compose.yaml 一样，后构建的覆盖先构建的，开发容器会跑到生产镜像上。
+    # 写了 image 后，镜像不在本机时 compose 默认先去 Docker Hub 拉这个名字，pull_policy: build 让它只构建
+    image: ${COMPOSE_PROJECT_NAME}-app:prod
+    pull_policy: build
+    build:
+      context: .
+      target: runtime
+    init: true
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+      NODE_ENTRY: ${NODE_ENTRY:?请先在 .env 里设置 NODE_ENTRY}
+      NODE_OPTIONS: ${NODE_OPTIONS:-}
+      # 请求都经前端的 Caddy 转发过来，不信任它带的 X-Forwarded-For 的话所有用户共用一个 IP 的限流额度
+      TRUST_PROXY: loopback,uniquelocal
+    # 程序读的变量（连接串、密钥）：开发时程序自己读 app/.env，生产镜像里没有这个文件，由 compose 注入成环境变量。
+    # 缺了让 up 直接报错，不让程序带着空连接串起来
+    env_file:
+      - app/.env
+    # 只给本机的反向代理转发，不直接对外。健康检查写在 Dockerfile 里
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8080}:3000"
+    networks:
+      docker-net:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME}
+
+networks:
+  # 服务器上同样先 docker network create docker-net
+  docker-net:
+    external: true
+    name: docker-net

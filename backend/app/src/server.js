@@ -27,6 +27,13 @@ import cardRoutes from './routes/cards.js';
 import voidLogRoutes from './routes/voidLogs.js';
 import bookingRoutes from './routes/booking.js';
 import tokenCleaner from './utils/tokenCleaner.js';
+import prisma from './db/prisma.js';
+
+// Fastify 5.12 起数字跳数一律按不信任处理（校验不了直连的对端），填数字等于没开：
+// 生产环境拿不到 https 协议，Secure 的 session cookie 不下发，登录不了。宁可启动时报错
+if (/^\d+$/.test(process.env.TRUST_PROXY || '')) {
+  throw new Error('TRUST_PROXY no longer accepts a hop count; list the proxy addresses instead, e.g. TRUST_PROXY=loopback,uniquelocal');
+}
 
 const fastify = Fastify({
   logger: {
@@ -47,11 +54,10 @@ const fastify = Fastify({
       censor: '[REDACTED]',
     },
   },
-  // 反向代理跳数：直连时为 false（用真实连接 IP，避免伪造 X-Forwarded-For 绕过限流）；
-  // 部署在 nginx 等反代后时设 TRUST_PROXY=1，并由反代负责覆写 X-Forwarded-For
-  trustProxy: process.env.TRUST_PROXY
-    ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY === 'true')
-    : false
+  // 直连时为 false（用真实连接 IP，避免伪造 X-Forwarded-For 绕过限流）；
+  // 在反代后面时填反代的地址或网段（逗号分隔，支持 loopback、uniquelocal 这类名字），
+  // 只信任这些地址带来的 X-Forwarded-*。true 会信任任何来源，客户端能自己伪造 IP
+  trustProxy: process.env.TRUST_PROXY === 'true' ? true : (process.env.TRUST_PROXY || false)
 });
 
 // CORS配置 - 基于环境变量
@@ -269,3 +275,14 @@ const start = async () => {
   }
 };
 start();
+
+// 停容器时 Docker 发 SIGTERM，Node 默认直接退出，正在处理的请求会被截断。
+// prisma.js 的 beforeExit 在 process.exit 时不触发，这里自己断开连接
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, async () => {
+    tokenCleaner.stop();
+    await fastify.close();
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+}

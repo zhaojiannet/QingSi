@@ -9,7 +9,7 @@
 
 | 步骤 | 在哪执行 |
 | --- | --- |
-| 前端 `pnpm build` | 本地 `qingsi_frontend` 容器 |
+| 前端 `pnpm build` | 本地 `docker build`（`frontend/Dockerfile` 的 files 段） |
 | `dist/` 推到站点目录 | rsync 本地 → 服务器 |
 | 后端打 tar 快照备份 | 服务器 |
 | 后端代码推送 | rsync 本地 → 服务器 |
@@ -24,7 +24,7 @@
 **本地：**
 
 - 能免密 ssh 到服务器（`ssh-copy-id` 配好公钥）
-- 开发容器在跑（`docker compose up -d`），脚本用 `qingsi_frontend` 构建前端
+- 装了 Docker，脚本用 `docker build` 构建前端，不需要开发容器在跑
 - 有 `rsync`（macOS 自带）
 
 **服务器：**
@@ -77,7 +77,7 @@ ssh root@your-domain.com "vi /srv/www/your-domain.com/backend/.env"
 | `NODE_ENV` | `production` |
 | `SECURE_COOKIE` | `true`（需要 HTTPS） |
 | `CORS_ORIGIN` | 你的站点地址，如 `https://your-domain.com` |
-| `TRUST_PROXY` | 走反代就填 `1`，否则限流会按反代的 IP 算，全站共用一个额度 |
+| `TRUST_PROXY` | 走反代就填 `loopback,uniquelocal`（不能填数字，启动会报错）。不填的话拿不到 https，验证码 session 不下发、登录不了，限流也会按反代的 IP 算 |
 | `JWT_SECRET` / `SESSION_SECRET` | 各跑一次 `openssl rand -hex 64`，**两个必须不同** |
 | `DATABASE_URL` | 后端容器能访问到的数据库地址 |
 | `RATE_LIMIT_MAX` | 全局限流，按 IP 计数。同一门店多台设备共用出口 IP 会共享额度，人多要调大 |

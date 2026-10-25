@@ -58,22 +58,24 @@ git checkout master
 git pull origin master
 ```
 
-### Step 2：重启容器（应用 docker-compose.yml 变更）
+### Step 2：重启容器（应用新的启动流程）
 
-新版本 `docker-compose.yml` 启动 command 把 `prisma db push` 改成了 `prisma migrate deploy`。重启后会自动应用 migrations：
+新版本删掉了根目录的 `docker-compose.yml`，后端改由 `backend/` 目录里的 compose 项目启动，启动时执行 `prisma migrate deploy`（原来是 `prisma db push`）。下文的 `docker compose` 命令都在 `backend/` 目录执行；用根目录 `docker-compose.prod.yml` 部署的，改成 `docker compose -f docker-compose.prod.yml ... backend`，`exec` 时服务名用 `backend`。
 
 ```bash
-docker-compose down
-docker-compose up -d
+docker rm -f qingsi_backend qingsi_frontend   # 旧容器，git pull 之后 docker-compose.yml 已不在，只能按名字删
+cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
+docker volume create pnpm            # 首次
+(cd backend && docker compose up -d)
+(cd frontend && docker compose up -d)
 
 # 观察 backend 启动日志
-docker-compose logs -f backend
+(cd backend && docker compose logs -f)
 ```
 
 预期看到：
 
 ```
-=== 应用数据库迁移 ===
 2 migrations found in prisma/migrations
 Applying migration `20260504000000_add_card_link_prune_indexes`
 Applying migration `20260504000100_card_id_allow_6_to_8`
@@ -91,15 +93,13 @@ P3005: The database schema is not empty.
 解决：把已有 schema 标记为初始基线已应用：
 
 ```bash
-docker exec -it qingsi_backend sh
-npx prisma migrate resolve --applied 0_init
-exit
+docker compose exec app npx prisma migrate resolve --applied 0_init
 
 # 然后重启再次触发 deploy
-docker-compose restart backend
+docker compose restart
 ```
 
-> 已在新部署上 `docker-compose up` 自动初始化的库不需要这步。
+> 已在新部署上 `docker compose up` 自动初始化的库不需要这步。
 
 ### Step 4：回填历史多卡支付关联（关键）
 
@@ -107,7 +107,7 @@ docker-compose restart backend
 
 ```bash
 # 4.1 干跑（不写库，输出统计）
-docker exec qingsi_backend npx tsx scripts/backfill-multi-card-links.js --dry-run
+docker compose exec app npx tsx scripts/backfill-multi-card-links.js --dry-run
 
 # 预期输出末尾：
 #   transactions scanned: <N>
@@ -115,7 +115,7 @@ docker exec qingsi_backend npx tsx scripts/backfill-multi-card-links.js --dry-ru
 #   unmatched entries:    0      <-- 必须为 0
 
 # 4.2 如果 unmatched=0，执行实写
-docker exec qingsi_backend npx tsx scripts/backfill-multi-card-links.js --apply
+docker compose exec app npx tsx scripts/backfill-multi-card-links.js --apply
 ```
 
 **如果 unmatched > 0**：说明有历史多卡 transaction 引用的卡名/自定义卡已被删除或改名。脚本会列出每条无法匹配的记录。决策：
@@ -143,7 +143,7 @@ curl -i http://localhost:3000/api/members
 # 期望：HTTP/1.1 401
 
 # 6.2 验证迁移记录
-docker exec qingsi_backend npx prisma migrate status
+docker compose exec app npx prisma migrate status
 # 期望：Database schema is up to date!
 
 # 6.3 验证 trigger 已删
@@ -179,8 +179,8 @@ docker-compose up -d
 ### 3.2 数据库回滚
 
 ```bash
-# 1. 停止 backend 写入
-docker-compose stop backend
+# 1. 停止 backend 写入（新版本在 backend/ 目录执行；已回到旧版本代码的用 docker-compose stop backend）
+docker compose stop
 
 # 2. 还原备份（会 DROP 所有现有数据 + 还原备份内容）
 docker exec -i mysql-server mysql -uqingsi -p<your-password> qingsi \
@@ -294,17 +294,17 @@ TransactionCardLink
 ```bash
 # 1. 改 prisma/schema.prisma
 # 2. 生成迁移 SQL
-docker exec qingsi_backend npx prisma migrate diff \
+docker compose exec app npx prisma migrate diff \
   --from-config-datasource \
   --to-schema prisma/schema.prisma \
   --script \
   -o prisma/migrations/<timestamp>_<change_name>/migration.sql
 
 # 3. 应用
-docker exec qingsi_backend npx prisma migrate deploy
+docker compose exec app npx prisma migrate deploy
 
 # 4. 重新生成 client
-docker exec qingsi_backend npx prisma generate
+docker compose exec app npx prisma generate
 ```
 
 ### 5.2 卡余额扣减的强制要求
@@ -368,6 +368,6 @@ export default async function (fastify, opts) {
 
 升级过程中遇到问题：
 
-1. 收集 `docker-compose logs backend` 完整日志
-2. 收集 `docker exec qingsi_backend npx prisma migrate status` 输出
+1. 在 `backend/` 目录收集 `docker compose logs` 完整日志
+2. 收集 `docker compose exec app npx prisma migrate status` 输出
 3. 在仓库提 Issue，附带上述信息和你的现有数据规模（Member / Card / Transaction 行数）

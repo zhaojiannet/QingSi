@@ -1,0 +1,18 @@
+# 只有构建阶段要用 app/ 下的源码，依赖、密钥、构建产物都不送给 daemon
+*
+!app
+app/node_modules
+app/**/node_modules
+app/.env
+app/.env.*
+# 只放公开值，pnpm build 时烤进页面，所以要留在构建上下文里
+!app/.env.production
+# wrangler 的本地密钥和本地状态
+app/.dev.vars
+app/.wrangler
+app/dist
+app/.output
+app/.astro
+# 设计插件的本机材料
+app/.impeccable
+**/.DS_Store

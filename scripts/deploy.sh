@@ -29,10 +29,13 @@ MIRROR="PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma"
 PART="${1:-all}"
 
 if [ "${PART}" != "backend" ]; then
-	echo "== 前端：容器内构建并推送"
-	docker exec qingsi_frontend sh -c 'cd /app && pnpm build'
+	echo "== 前端：镜像内构建并推送"
+	# 导出到新建的空目录：导出不清理目标目录，旧文件留着会被 rsync --delete 一起推上去
+	out=$(mktemp -d)
+	docker build --target files --output "${out}" frontend
 	rsync -av --delete --exclude '.DS_Store' --exclude '._*' \
-		frontend/app/dist/ "${SERVER}:${FRONT_DIR}/"
+		"${out}/" "${SERVER}:${FRONT_DIR}/"
+	rm -rf "${out}"
 fi
 
 if [ "${PART}" != "frontend" ]; then
@@ -41,7 +44,7 @@ if [ "${PART}" != "frontend" ]; then
 
 	echo "== 后端：同步代码"
 	rsync -av --delete \
-		--exclude node_modules --exclude src/generated --exclude .env \
+		--exclude node_modules --exclude src/generated --exclude .env --exclude .pnpm-store \
 		--exclude '.DS_Store' --exclude '._*' \
 		backend/app/ "${SERVER}:${BACK_DIR}/"
 

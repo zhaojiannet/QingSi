@@ -1,7 +1,7 @@
 // Backfill TransactionCardLink from historical multi-card notes.
 // Usage:
-//   docker exec qingsi_backend node scripts/backfill-multi-card-links.js --dry-run
-//   docker exec qingsi_backend node scripts/backfill-multi-card-links.js --apply
+//   (cd backend && docker compose exec app npx tsx scripts/backfill-multi-card-links.js --dry-run)
+//   (cd backend && docker compose exec app npx tsx scripts/backfill-multi-card-links.js --apply)
 
 import 'dotenv/config';
 import prisma from '../src/db/prisma.js';

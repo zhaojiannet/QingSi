@@ -1,0 +1,6 @@
+# 所有 env 文件都不进 git，只留模板
+.env
+.env.*
+!.env.example
+!.env.*.example
+.DS_Store

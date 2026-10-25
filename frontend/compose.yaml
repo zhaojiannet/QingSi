@@ -1,0 +1,36 @@
+# 没填项目名时直接报错：不填 compose 会悄悄用目录名，跟已经在跑的容器对不上
+name: ${COMPOSE_PROJECT_NAME:?请先在 .env 里设置 COMPOSE_PROJECT_NAME}
+
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    init: true
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+      # Vite 默认只放行 localhost 和 IP，用 OrbStack 域名或别的项目用项目名访问都会返回 403
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: .orb.local,${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./app:/app
+      - node_modules:/app/node_modules
+      - pnpm:/home/node/.local/share/pnpm
+    networks:
+      docker-net:
+        # 别的项目用项目名访问这个服务
+        aliases:
+          - ${COMPOSE_PROJECT_NAME}
+
+volumes:
+  node_modules:
+  # 所有 Node 项目共用，包只下载一次。external：compose 不建也不删，第一次用前先 docker volume create pnpm
+  pnpm:
+    external: true
+    name: pnpm
+
+networks:
+  # 所有项目和数据库共用。external：compose 不建也不删，第一次用前先 docker network create docker-net
+  docker-net:
+    external: true
+    name: docker-net

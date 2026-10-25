@@ -1,46 +1,46 @@
-# 生产部署：前端构建为静态文件由 nginx 服务并反代 /api 到后端，后端生产模式启动。
-# 与开发用的 docker-compose.yml 相互独立，按需选用：
+# 生产部署：前端构建为静态文件由 Caddy 服务并转发 /api 到后端，后端生产模式启动。
+# 镜像用 frontend/、backend/ 里同一份 Dockerfile 的生产段，开发用各自目录里的 compose.yaml：
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# 注意：后端在 NODE_ENV=production 下会强制 Secure Cookie（refresh token），
-# 因此生产环境前端必须经 HTTPS 访问（在本 nginx 前再加一层 HTTPS 反代或证书）。
+# 注意：后端在 NODE_ENV=production 下会强制 Secure Cookie（验证码 session、refresh token），
+# 因此生产环境前端必须经 HTTPS 访问（在前面再加一层 HTTPS 反代或证书）。
 services:
   backend:
     build:
-      context: ./backend/app
-      dockerfile: Dockerfile.prod
+      context: ./backend
+      target: runtime
     container_name: qingsi_backend_prod
+    init: true
     env_file:
       - ./backend/app/.env
     environment:
       - NODE_ENV=production
-      - TRUST_PROXY=1
+      - TRUST_PROXY=loopback,uniquelocal
+      - PORT=3000
+      # 先跑数据库迁移和初始化管理员再起服务；Prisma 生成的客户端是 TypeScript，靠 tsx 加载
+      - NODE_ENTRY=scripts/start.js
+      - NODE_OPTIONS=--import tsx
     restart: unless-stopped
-    command: >
-      sh -c "
-      npx prisma migrate deploy &&
-      npx tsx init-admin.js &&
-      pnpm start
-      "
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/configs',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     networks:
-      - docker-net
+      docker-net:
+        # 前端按 BACKEND_HOST 转发接口。不用开发容器的 qingsi-backend：两套同时在 docker-net 上时会轮流解析到两个容器
+        aliases:
+          - qingsi-backend-prod
 
   frontend:
     build:
-      context: ./frontend/app
-      dockerfile: Dockerfile.prod
+      context: ./frontend
+      target: runtime
     container_name: qingsi_frontend_prod
     restart: unless-stopped
+    environment:
+      - BACKEND_HOST=qingsi-backend-prod
+    # 店里的其他设备要访问，所以不只绑本机
     ports:
-      - "8080:80"
+      - "${QINGSI_PORT:-8080}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - docker-net
 

@@ -1,0 +1,30 @@
+# 服务器上用：不挂源码，只跑 Dockerfile 的 runtime 段，Caddy 托管构建产物
+name: ${COMPOSE_PROJECT_NAME:?请先在 .env 里设置 COMPOSE_PROJECT_NAME}
+
+services:
+  app:
+    # 不写 image 时镜像名和开发的 compose.yaml 一样，后构建的覆盖先构建的，开发容器会跑到生产镜像上。
+    # 写了 image 后，镜像不在本机时 compose 默认先去 Docker Hub 拉这个名字，pull_policy: build 让它只构建
+    image: ${COMPOSE_PROJECT_NAME}-app:prod
+    pull_policy: build
+    build:
+      context: .
+      target: runtime
+      args:
+        OUTPUT_DIR: ${OUTPUT_DIR:-dist}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+    # 只给本机的反向代理转发，不直接对外。健康检查写在 Dockerfile 里
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8080}:80"
+    networks:
+      docker-net:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME}
+
+networks:
+  # 服务器上同样先 docker network create docker-net
+  docker-net:
+    external: true
+    name: docker-net

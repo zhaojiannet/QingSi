@@ -112,13 +112,14 @@ DATABASE_URL=mysql://user:password@localhost:3306/database
 
 ```bash
 docker network create docker-net  # 如不存在
-docker-compose up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 ### 4. 访问
 
-- 前端：http://localhost:5173
-- API：http://localhost:3000/api
+前端在 8080 端口（被占用时换端口：`QINGSI_PORT=8090 docker compose -f docker-compose.prod.yml up -d --build`），但**必须经 HTTPS 访问**，本机和店里其他设备都一样：生产模式下验证码 session 和 refresh token 的 cookie 都带 Secure 标记，后端只在请求是 https 时才下发。直接用 `http://localhost:8080` 或 `http://<局域网 IP>:8080` 打开，验证码总是校验失败，登录不了。
+
+在 8080 前面加一层 HTTPS 反代，并让它带上 `X-Forwarded-Proto: https`（Caddy 默认会带，nginx 要写 `proxy_set_header X-Forwarded-Proto $scheme;`），见下文「生产部署」。
 
 ## 品牌定制
 
@@ -184,7 +185,7 @@ WXPUSH_TOKEN=your-api-token
 
 ### 主要破坏性变更（须按顺序处理）
 
-1. **`db push` → `migrate deploy`**：`docker-compose.yml` 启动 command 已切换；
+1. **`db push` → `migrate deploy`**：后端启动时执行 `prisma migrate deploy`；
    开发改 schema 必须先 `prisma migrate diff` 生成迁移文件，禁止再用 `db push`
 2. **Refresh Token 改 SHA256 入库**：升级后 DB 内的旧明文 token 全部失效，
    所有用户需重新登录一次（强制清空 `RefreshToken` 表）
@@ -213,7 +214,7 @@ WXPUSH_TOKEN=your-api-token
 
 ### Docker Compose
 
-前端构建成静态文件由 nginx 提供并反代 `/api`，后端以生产模式启动：
+前端构建成静态文件由 Caddy 提供并反代 `/api`，后端以生产模式启动：
 
 ```bash
 docker network create docker-net          # 首次
@@ -222,7 +223,7 @@ vi backend/app/.env                       # 至少填 DATABASE_URL、JWT_SECRET�
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-前端在 8080 端口。生产模式下 refresh token 的 cookie 带 Secure 标记，**需要在它前面再加一层 HTTPS 反代**，纯 HTTP 访问浏览器会拒绝保存 cookie，表现为登录后立刻掉线。
+前端在 8080 端口。生产模式下 refresh token 的 cookie 带 Secure 标记，**需要在它前面再加一层 HTTPS 反代**，纯 HTTP 访问时后端不下发 cookie，验证码校验失败、登录不了。
 
 ### 一键推送脚本
 
@@ -274,14 +275,18 @@ server {
 
 ## 开发
 
-```bash
-docker-compose up              # 启动
-docker-compose logs -f backend # 查看日志
+开发环境按 Mac + OrbStack 准备，`frontend/`、`backend/` 各自是一个 compose 项目，Node、pnpm 和依赖都只在容器里。第一次用先建共用的网络和 pnpm 缓存卷：`docker network create docker-net && docker volume create pnpm`。
 
-# 进入容器
-docker exec -it qingsi_backend sh
+```bash
+cp backend/.env.example backend/.env && cp frontend/.env.example frontend/.env
+(cd backend && docker compose up -d)    # https://app.qingsi-backend.orb.local
+(cd frontend && docker compose up -d)   # https://app.qingsi-frontend.orb.local，/api 转发到后端
+(cd backend && docker compose logs -f)         # 查看日志
+
+# 进入后端容器
+(cd backend && docker compose exec app sh)
 npx prisma studio              # 数据库可视化
-node init-admin.js             # 重置管理员
+npx tsx init-admin.js          # 重置管理员
 ```
 
 ## 项目结构
@@ -297,7 +302,8 @@ QingSi/
 │       ├── views/       # 页面
 │       ├── components/  # 组件
 │       └── config/      # 配置
-└── docker-compose.yml
+├── backend/compose.yaml、frontend/compose.yaml   # 开发
+└── docker-compose.prod.yml                      # 生产
 ```
 
 ## 许可证

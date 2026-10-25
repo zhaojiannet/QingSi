@@ -1,0 +1,34 @@
+# 生产后端的 cookie 带 Secure，只在 X-Forwarded-Proto 为 https 时下发。
+# Caddy 默认把这个头改写成自己收到的 http，外层 HTTPS 反代传来的值要信任才能留下。
+# 代价：局域网设备直连时也能伪造 X-Forwarded-For，绕过按 IP 的限流
+{
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	root * /usr/share/caddy
+	encode gzip
+
+	# 后端在 docker-net 上的访问名。默认是后端 .env 的 COMPOSE_PROJECT_NAME；
+	# 根目录 docker-compose.prod.yml 用 BACKEND_HOST 换成另一个名字，免得和开发容器重名
+	handle /api/* {
+		reverse_proxy {$BACKEND_HOST:qingsi-backend}:3000
+	}
+
+	# 构建产物文件名带 hash，内容变了文件名就变，可以长期缓存。
+	# 单独一个 handle、不走 index.html 回退：文件不存在时返回 404，不把首页当成这个文件缓存一年
+	@hashed path /assets/* /js/* /css/* /images/*
+	handle @hashed {
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		# 单页应用：找不到的路径交给 index.html，由前端路由处理
+		try_files {path} /index.html
+		file_server
+	}
+}

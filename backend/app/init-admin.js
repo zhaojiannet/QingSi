@@ -1,6 +1,8 @@
 // backend/app/init-admin.js
 // 复用 src/db/prisma.js 已配置的客户端（Prisma 7 prisma-client generator + adapter）。
 // 用 tsx 运行：容器内 `npx tsx init-admin.js`。
+// 和 server.js 一样先加载 .env：db/prisma.js 在模块加载时就读 DATABASE_URL，开发容器不注入环境变量
+import 'dotenv/config';
 import prisma from './src/db/prisma.js';
 import bcrypt from 'bcryptjs';
 
